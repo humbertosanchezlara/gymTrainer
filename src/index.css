@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  /* ─── Typography ─────────────────────────────── */
+  --font-headline: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-body: "Manrope", system-ui, sans-serif;
+
+  /* ─── M3 Color Tokens ────────────────────────── */
+  --color-primary: #556500;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #dfff4f;
+  --color-on-primary-container: #637500;
+
+  --color-secondary: #57641f;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #d8e893;
+  --color-on-secondary-container: #5b6823;
+
+  --color-tertiary: #615c6a;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #f6eeff;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  --color-surface: #f9faf4;
+  --color-surface-dim: #d9dbd5;
+  --color-surface-bright: #f9faf4;
+  --color-on-surface: #1a1c19;
+  --color-on-surface-variant: #454935;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f3f4ee;
+  --color-surface-container: #edeee8;
+  --color-surface-container-high: #e8e9e3;
+  --color-surface-container-highest: #e2e3dd;
+
+  --color-outline: #767962;
+  --color-outline-variant: #c6c9af;
+
+  --color-inverse-surface: #2e312d;
+  --color-inverse-on-surface: #f0f1eb;
+  --color-inverse-primary: #b5d321;
+
+  --color-primary-fixed: #d1f041;
+  --color-primary-fixed-dim: #b5d321;
+  --color-secondary-fixed: #dbea96;
+  --color-secondary-fixed-dim: #bfce7c;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-on-surface);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-headline);
+    letter-spacing: -0.025em;
+  }
+
+  /* Smooth scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-outline-variant);
+    border-radius: 9999px;
+  }
+
+  ::selection {
+    background-color: var(--color-primary-container);
+    color: var(--color-on-primary-container);
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    background: rgba(249, 250, 244, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid color-mix(in srgb, var(--color-outline-variant) 15%, transparent);
+  }
+
+  .glass-nav {
+    background: rgba(249, 250, 244, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid color-mix(in srgb, var(--color-outline-variant) 20%, transparent);
+  }
+
+  .card-elevated {
+    background-color: var(--color-surface-container-low);
+    border: 1px solid color-mix(in srgb, var(--color-outline-variant) 18%, transparent);
+    box-shadow: 0 1px 3px rgba(26, 28, 25, 0.04), 0 4px 12px rgba(26, 28, 25, 0.03);
+  }
+
+  .card-filled {
+    background-color: var(--color-surface-container-highest);
+  }
+}
