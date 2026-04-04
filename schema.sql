@@ -16,9 +16,12 @@ CREATE TYPE movement_category AS ENUM (
 CREATE TABLE profiles (
   id UUID REFERENCES auth.users(id) PRIMARY KEY,
   name TEXT,
+  bodyweight NUMERIC,
+  height NUMERIC,
   training_experience TEXT,
   goal TEXT,
   schedule_days INTEGER,
+  session_minutes INTEGER DEFAULT 60,
   equipment_access TEXT,
   limitations TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL

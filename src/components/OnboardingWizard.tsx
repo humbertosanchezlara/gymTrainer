@@ -5,8 +5,7 @@ import { supabase } from '../lib/supabase';
 import { DEFAULT_EXERCISES, type ExerciseStatus } from '../types';
 import { estimateKeyLifts } from '../engine/weightEstimator';
 import { generateProgram } from '../engine/programGenerator';
-import { getSplitTemplate } from '../engine/splitTemplates';
-import { ArrowRight, ArrowLeft, User, Target, Calendar, Dumbbell, Loader2, Check } from 'lucide-react';
+import { ArrowRight, ArrowLeft, User, Target, Calendar, Dumbbell, Loader2, Check, Info, X } from 'lucide-react';
 
 // ─── Step animation variants ─────────────────────────────
 const stepVariants = {
@@ -75,6 +74,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   // Step 1: Identity
   const [name, setName] = useState('');
   const [bodyweight, setBodyweight] = useState<number>(75);
+  const [height, setHeight] = useState<number>(170);
 
   // Step 2: Experience & Goals
   const [experience, setExperience] = useState('intermediate');
@@ -83,11 +83,13 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   // Step 3: Schedule
   const [scheduleDays, setScheduleDays] = useState(4);
+  const [sessionMinutes, setSessionMinutes] = useState(60);
   const [limitations, setLimitations] = useState('');
 
   // Step 4: Key Lifts
   const [keyLifts, setKeyLifts] = useState({ squat: 0, bench: 0, deadlift: 0, ohp: 0 });
   const [liftsEstimated, setLiftsEstimated] = useState(false);
+  const [infoLift, setInfoLift] = useState<string | null>(null);
 
   const TOTAL_STEPS = 4;
 
@@ -105,11 +107,9 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
     setStep((s) => Math.max(s - 1, 0));
   };
 
-  const splitInfo = getSplitTemplate(scheduleDays);
-
   const canProceed = () => {
     switch (step) {
-      case 0: return name.trim().length > 0 && bodyweight > 0;
+      case 0: return name.trim().length > 0 && bodyweight > 0 && height > 0;
       case 1: return true;
       case 2: return scheduleDays >= 2 && scheduleDays <= 6;
       case 3: return keyLifts.squat > 0 && keyLifts.bench > 0 && keyLifts.deadlift > 0 && keyLifts.ohp > 0;
@@ -126,9 +126,11 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
         id: user.id,
         name,
         bodyweight,
+        height,
         training_experience: experience,
         goal,
         schedule_days: scheduleDays,
+        session_minutes: sessionMinutes,
         equipment_access: equipment,
         limitations: limitations || null,
       });
@@ -151,7 +153,8 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
         throw new Error('Failed to seed exercises');
       }
 
-      const program = generateProgram(exercises, scheduleDays, bodyweight, experience, keyLifts, goal);
+      const bmi = bodyweight / ((height / 100) ** 2);
+      const program = generateProgram(exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes);
 
       const { data: savedProgram, error: pErr } = await supabase
         .from('programs')
@@ -251,6 +254,46 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                     className={inputCls}
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2 ml-1">Altura (cm)</label>
+                  <input
+                    type="number"
+                    value={height}
+                    onChange={(e) => setHeight(+e.target.value)}
+                    placeholder="170"
+                    className={inputCls}
+                  />
+                </div>
+                {bodyweight > 0 && height > 0 && (
+                  <motion.div variants={fadeUp} custom={3} initial="hidden" animate="show" className="space-y-2">
+                    <div className="card-elevated rounded-xl p-4 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">IMC</span>
+                        <p className="text-2xl font-headline font-extrabold text-on-surface">
+                          {(bodyweight / ((height / 100) ** 2)).toFixed(1)}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full ${
+                        (() => {
+                          const bmi = bodyweight / ((height / 100) ** 2);
+                          if (bmi < 18.5) return 'bg-blue-100 text-blue-700';
+                          if (bmi < 25) return 'bg-green-100 text-green-700';
+                          return 'bg-amber-100 text-amber-700';
+                        })()
+                      }`}>
+                        {(() => {
+                          const bmi = bodyweight / ((height / 100) ** 2);
+                          if (bmi < 18.5) return 'Bajo el rango promedio';
+                          if (bmi < 25) return 'Rango saludable';
+                          return 'Sobre el rango recomendado';
+                        })()}
+                      </span>
+                    </div>
+                    <p className="text-on-surface-variant/50 text-xs font-body ml-1">
+                      El IMC es una referencia general. No toma en cuenta tu masa muscular o densidad ósea.
+                    </p>
+                  </motion.div>
+                )}
               </motion.div>
             </motion.div>
           )}
@@ -340,19 +383,22 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                   </div>
                 </div>
 
-                {/* Split preview */}
-                <div className="card-elevated rounded-xl p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Split auto-seleccionado</span>
-                    <span className="text-primary font-headline font-bold text-sm">{splitInfo.label}</span>
+                <div>
+                  <div className="flex items-baseline justify-between mb-4">
+                    <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Tiempo por sesión</label>
+                    <span className="text-5xl font-headline font-extrabold text-primary">{sessionMinutes}<span className="text-lg ml-1">min</span></span>
                   </div>
-                  <div className="space-y-1.5">
-                    {splitInfo.days.map((d, i) => (
-                      <div key={i} className="flex items-center gap-3 text-sm">
-                        <span className="text-on-surface-variant/50 font-headline font-bold w-14">Día {i + 1}</span>
-                        <span className="text-on-surface font-body">{d.name}</span>
-                      </div>
-                    ))}
+                  <input
+                    type="range"
+                    min={20}
+                    max={90}
+                    step={5}
+                    value={sessionMinutes}
+                    onChange={(e) => setSessionMinutes(+e.target.value)}
+                    className="w-full accent-primary h-1.5 bg-outline-variant/20 rounded-full appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-on-surface-variant/40 text-xs mt-2 font-body">
+                    <span>20</span><span>35</span><span>50</span><span>65</span><span>80</span><span>90</span>
                   </div>
                 </div>
 
@@ -385,17 +431,31 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                 <motion.p variants={fadeUp} custom={2} initial="hidden" animate="show" className="text-on-surface-variant mt-2 text-sm font-body">
                   Estos son tus pesos de trabajo actuales — no 1RMs. Los estimamos a partir de tu peso corporal. Ajústalos si es necesario.
                 </motion.p>
+                <motion.div variants={fadeUp} custom={2.5} initial="hidden" animate="show" className="mt-3 bg-surface-container-low rounded-lg p-3 border border-outline-variant/15">
+                  <p className="text-on-surface-variant/60 text-xs font-body leading-relaxed">
+                    <span className="font-bold text-on-surface-variant">¿Qué es 1RM?</span> El peso máximo que puedes levantar en una sola repetición manteniendo una técnica perfecta. Se usa como referencia para medir tu fuerza total, pero no es el peso con el que debes entrenar a diario.
+                  </p>
+                </motion.div>
               </div>
 
               <motion.div variants={fadeUp} custom={3} initial="hidden" animate="show" className="grid grid-cols-2 gap-4">
                 {([
-                  { key: 'squat', label: 'Sentadilla' },
-                  { key: 'bench', label: 'Press Banca' },
-                  { key: 'deadlift', label: 'Peso Muerto' },
-                  { key: 'ohp', label: 'Press Militar' },
+                  { key: 'squat', label: 'Sentadilla', desc: 'El ejercicio fundamental para fortalecer piernas y glúteos. Consiste en bajar la cadera como si fueras a sentarte, manteniendo la espalda recta y subiendo con la fuerza de tus piernas.' },
+                  { key: 'bench', label: 'Press de Pecho (Barra)', desc: 'Realizado sobre un banco plano, consiste en empujar una barra hacia arriba desde el pecho. Es el movimiento clave para desarrollar fuerza en pectorales y tríceps.' },
+                  { key: 'deadlift', label: 'Peso Muerto (Tren Inferior)', desc: 'Consiste en levantar el peso desde el suelo hasta la altura de la cadera. Es el mejor ejercicio para trabajar la cadena posterior: glúteos, isquiotibiales y espalda baja.' },
+                  { key: 'ohp', label: 'Press de Hombro (Mancuerna)', desc: 'Sentado o de pie, empujas las mancuernas por encima de tu cabeza hasta estirar los brazos. Se enfoca totalmente en la fuerza y estabilidad de los hombros.' },
                 ] as const).map((lift) => (
-                  <div key={lift.key} className="card-elevated rounded-xl p-5">
-                    <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-2">{lift.label}</label>
+                  <div key={lift.key} className="card-elevated rounded-xl p-5 relative">
+                    <div className="flex items-start justify-between mb-2">
+                      <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest leading-tight pr-5">{lift.label}</label>
+                      <button
+                        type="button"
+                        onClick={() => setInfoLift(infoLift === lift.key ? null : lift.key)}
+                        className="text-on-surface-variant/40 hover:text-primary transition-colors shrink-0 -mt-0.5"
+                      >
+                        <Info size={14} />
+                      </button>
+                    </div>
                     <div className="flex items-baseline gap-1">
                       <input
                         type="number"
@@ -409,6 +469,38 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                   </div>
                 ))}
               </motion.div>
+
+              {/* Exercise info modal */}
+              <AnimatePresence>
+                {infoLift && (() => {
+                  const liftData = {
+                    squat: { label: 'Sentadilla', desc: 'El ejercicio fundamental para fortalecer piernas y glúteos. Consiste en bajar la cadera como si fueras a sentarte, manteniendo la espalda recta y subiendo con la fuerza de tus piernas.' },
+                    bench: { label: 'Press de Pecho (Barra)', desc: 'Realizado sobre un banco plano, consiste en empujar una barra hacia arriba desde el pecho. Es el movimiento clave para desarrollar fuerza en pectorales y tríceps.' },
+                    deadlift: { label: 'Peso Muerto (Tren Inferior)', desc: 'Consiste en levantar el peso desde el suelo hasta la altura de la cadera. Es el mejor ejercicio para trabajar la cadena posterior: glúteos, isquiotibiales y espalda baja.' },
+                    ohp: { label: 'Press de Hombro (Mancuerna)', desc: 'Sentado o de pie, empujas las mancuernas por encima de tu cabeza hasta estirar los brazos. Se enfoca totalmente en la fuerza y estabilidad de los hombros.' },
+                  }[infoLift];
+                  return liftData ? (
+                    <motion.div
+                      key="info-modal"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                      className="bg-surface-container-low border border-outline-variant/20 rounded-xl p-4 shadow-lg"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-headline font-bold text-sm text-on-surface mb-1">{liftData.label}</p>
+                          <p className="text-on-surface-variant text-xs font-body leading-relaxed">{liftData.desc}</p>
+                        </div>
+                        <button type="button" onClick={() => setInfoLift(null)} className="text-on-surface-variant/40 hover:text-on-surface transition-colors shrink-0 mt-0.5">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : null;
+                })()}
+              </AnimatePresence>
 
               <motion.p variants={fadeUp} custom={4} initial="hidden" animate="show" className="text-on-surface-variant/50 text-xs font-body">
                 La semana 1 es de calibración — estos pesos se validarán durante tus primeras sesiones.

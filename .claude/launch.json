@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vite-dev",
+      "runtimeExecutable": "/Users/humbertosanchezlara/.nvm/versions/node/v22.22.2/bin/node",
+      "runtimeArgs": ["/Users/humbertosanchezlara/Library/CloudStorage/OneDrive-Personal/github/gymTrainer/node_modules/.bin/vite"],
+      "port": 5173
+    },
+    {
+      "name": "vite-preview",
+      "runtimeExecutable": "/Users/humbertosanchezlara/.nvm/versions/node/v22.22.2/bin/node",
+      "runtimeArgs": ["/Users/humbertosanchezlara/Library/CloudStorage/OneDrive-Personal/github/gymTrainer/node_modules/.bin/vite", "preview"],
+      "port": 4173
+    }
+  ]
+}
