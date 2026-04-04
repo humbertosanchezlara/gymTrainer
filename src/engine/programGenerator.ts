@@ -139,20 +139,20 @@ export function generateProgram(
   // Build weight lookup from key lifts overrides
   const weightOverrides: Record<string, number> = {};
   if (keyLifts) {
-    weightOverrides['Barbell Back Squat'] = keyLifts.squat;
-    weightOverrides['Barbell Front Squat'] = Math.round(keyLifts.squat * 0.75 / 2.5) * 2.5;
-    weightOverrides['Barbell Bench Press'] = keyLifts.bench;
-    weightOverrides['Incline Barbell Press'] = Math.round(keyLifts.bench * 0.8 / 2.5) * 2.5;
-    weightOverrides['Dumbbell Bench Press'] = Math.round(keyLifts.bench * 0.4 / 2.5) * 2.5;
-    weightOverrides['Incline Dumbbell Press'] = Math.round(keyLifts.bench * 0.35 / 2.5) * 2.5;
-    weightOverrides['Conventional Deadlift'] = keyLifts.deadlift;
-    weightOverrides['Sumo Deadlift'] = keyLifts.deadlift;
-    weightOverrides['Romanian Deadlift'] = Math.round(keyLifts.deadlift * 0.65 / 2.5) * 2.5;
-    weightOverrides['Barbell OHP'] = keyLifts.ohp;
-    weightOverrides['Dumbbell OHP'] = Math.round(keyLifts.ohp * 0.4 / 2.5) * 2.5;
-    weightOverrides['Close Grip Bench Press'] = Math.round(keyLifts.bench * 0.85 / 2.5) * 2.5;
-    weightOverrides['Barbell Bent Over Row'] = Math.round(keyLifts.bench * 0.9 / 2.5) * 2.5;
-    weightOverrides['Pendlay Row'] = Math.round(keyLifts.bench * 0.85 / 2.5) * 2.5;
+    weightOverrides['Barra Back Squat'] = keyLifts.squat;
+    weightOverrides['Barra Front Squat'] = Math.round(keyLifts.squat * 0.75 / 2.5) * 2.5;
+    weightOverrides['Barra Press de Banca'] = keyLifts.bench;
+    weightOverrides['Barra Press Inclinado'] = Math.round(keyLifts.bench * 0.8 / 2.5) * 2.5;
+    weightOverrides['Mancuerna Press de Banca'] = Math.round(keyLifts.bench * 0.4 / 2.5) * 2.5;
+    weightOverrides['Mancuerna Press Inclinado'] = Math.round(keyLifts.bench * 0.35 / 2.5) * 2.5;
+    weightOverrides['Peso Muerto Convencional'] = keyLifts.deadlift;
+    weightOverrides['Peso Muerto Sumo'] = keyLifts.deadlift;
+    weightOverrides['Peso Muerto Rumano'] = Math.round(keyLifts.deadlift * 0.65 / 2.5) * 2.5;
+    weightOverrides['Barra Press Militar'] = keyLifts.ohp;
+    weightOverrides['Mancuerna Press Militar'] = Math.round(keyLifts.ohp * 0.4 / 2.5) * 2.5;
+    weightOverrides['Press Banca Agarre Cerrado'] = Math.round(keyLifts.bench * 0.85 / 2.5) * 2.5;
+    weightOverrides['Barra Remo Inclinado'] = Math.round(keyLifts.bench * 0.9 / 2.5) * 2.5;
+    weightOverrides['Remo Pendlay'] = Math.round(keyLifts.bench * 0.85 / 2.5) * 2.5;
   }
 
   const generatedDays: GeneratedDay[] = split.days.map((dayTemplate, idx) => {
