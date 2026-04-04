@@ -28,9 +28,12 @@ export const CATEGORY_LABELS: Record<MovementCategory, string> = {
 export interface Profile {
   id: string;
   name: string;
+  bodyweight: number;
+  height: number;
   training_experience: string;
   goal: string;
   schedule_days: number;
+  session_minutes: number;
   equipment_access: string;
   limitations: string;
   created_at: string;

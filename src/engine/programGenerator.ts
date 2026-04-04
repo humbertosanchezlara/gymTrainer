@@ -114,6 +114,59 @@ function resolveExercise(
   return available[0];
 }
 
+// ─── BMI Adjustments ────────────────────────────────────
+/**
+ * Compute training adjustments based on BMI × experience interaction.
+ *
+ * Rationale:
+ * - High-BMI beginners need lower intensity (joint stress) and slightly higher reps
+ *   to build movement proficiency before loading heavy.
+ * - Low-BMI advanced athletes are efficient movers and can handle higher relative
+ *   intensity but may need slightly more volume to drive hypertrophy.
+ * - Overweight/obese trainees benefit from more compound movements (metabolic demand)
+ *   and conservative RPE to manage recovery.
+ */
+interface BmiAdjustments {
+  rpeDelta: number;       // Added to RPE targets (negative = easier)
+  repsDelta: number;      // Added to rep ranges (positive = more reps)
+  weightScale: number;    // Multiplier on estimated weights (< 1 = lighter)
+}
+
+function getBmiAdjustments(bmi: number, experience: string): BmiAdjustments {
+  if (bmi >= 30) {
+    // Obese: conservative across the board
+    if (experience === 'beginner') return { rpeDelta: -1.5, repsDelta: 2, weightScale: 0.75 };
+    if (experience === 'intermediate') return { rpeDelta: -1, repsDelta: 1, weightScale: 0.85 };
+    return { rpeDelta: -0.5, repsDelta: 1, weightScale: 0.9 };
+  }
+  if (bmi >= 25) {
+    // Overweight: slightly conservative
+    if (experience === 'beginner') return { rpeDelta: -1, repsDelta: 1, weightScale: 0.8 };
+    if (experience === 'intermediate') return { rpeDelta: -0.5, repsDelta: 0, weightScale: 0.9 };
+    return { rpeDelta: 0, repsDelta: 0, weightScale: 0.95 };
+  }
+  if (bmi < 18.5) {
+    // Underweight: prioritize volume for mass gain, moderate intensity
+    if (experience === 'beginner') return { rpeDelta: -0.5, repsDelta: 2, weightScale: 0.85 };
+    return { rpeDelta: 0, repsDelta: 1, weightScale: 0.95 };
+  }
+  // Normal BMI: no adjustments
+  return { rpeDelta: 0, repsDelta: 0, weightScale: 1.0 };
+}
+
+// ─── Session Duration → Max Exercises ───────────────────
+/**
+ * Estimate how many exercises fit into a session based on available minutes.
+ *
+ * Heuristic: ~7 min per exercise (warm-up sets + working sets + rest).
+ * Subtract 5 min for general warm-up/cooldown.
+ * Minimum 3 exercises (always keep compounds), maximum is the template's full slot list.
+ */
+function maxExercisesForDuration(sessionMinutes: number): number {
+  const usableMinutes = Math.max(sessionMinutes - 5, 15);
+  return Math.max(3, Math.floor(usableMinutes / 7));
+}
+
 // ─── Main Generator ──────────────────────────────────────
 /**
  * Generate a complete training program.
@@ -124,6 +177,8 @@ function resolveExercise(
  * @param experience - beginner | intermediate | advanced
  * @param keyLifts - Optional overrides for main compound weights
  * @param goal - hypertrophy | strength | fat_loss | general
+ * @param bmi - Body Mass Index (kg/m²)
+ * @param sessionMinutes - Available minutes per session
  */
 export function generateProgram(
   exercises: Exercise[],
@@ -131,10 +186,14 @@ export function generateProgram(
   bodyweight: number,
   experience: string,
   keyLifts?: { squat: number; bench: number; deadlift: number; ohp: number },
-  goal: string = 'hypertrophy'
+  goal: string = 'hypertrophy',
+  bmi: number = 22,
+  sessionMinutes: number = 60
 ): GeneratedProgram {
   const split = getSplitTemplate(days);
   const block = BLOCKS[0]; // Generate Day 1 details for Volume block (Week 1)
+  const bmiAdj = getBmiAdjustments(bmi, experience);
+  const maxExercises = maxExercisesForDuration(sessionMinutes);
 
   // Build weight lookup from key lifts overrides
   const weightOverrides: Record<string, number> = {};
@@ -159,7 +218,10 @@ export function generateProgram(
     const usedIds = new Set<string>();
     const generatedExercises: GeneratedExercise[] = [];
 
-    for (const slot of dayTemplate.slots) {
+    // Trim slots to fit session duration: keep primaries/secondaries, trim accessories
+    const slots = dayTemplate.slots.slice(0, maxExercises);
+
+    for (const slot of slots) {
       const exercise = resolveExercise(slot, exercises, usedIds);
       if (!exercise) continue;
 
@@ -171,14 +233,25 @@ export function generateProgram(
         ? block.setsCompound - 1
         : block.setsAccessory;
 
-      // Get weight: override > estimate
-      const weight = weightOverrides[exercise.name]
+      // Get weight: override > estimate, then apply BMI scale
+      const baseWeight = weightOverrides[exercise.name]
         ?? estimateWeight(exercise.name, bodyweight, experience);
+      const bmiScaledWeight = Math.round(baseWeight * bmiAdj.weightScale / 2.5) * 2.5;
 
       // Adjust weight for accessories (they use lighter weight in volume phase)
       const adjustedWeight = slot.role === 'accessory'
-        ? Math.round(weight * 0.9 / 2.5) * 2.5
-        : weight;
+        ? Math.round(bmiScaledWeight * 0.9 / 2.5) * 2.5
+        : bmiScaledWeight;
+
+      // Apply BMI rep adjustments
+      const baseRepsMin = slot.role === 'accessory' ? Math.max(block.repsMin, 10) : block.repsMin;
+      const baseRepsMax = slot.role === 'accessory' ? Math.max(block.repsMax, 15) : block.repsMax;
+      const repsMin = baseRepsMin + bmiAdj.repsDelta;
+      const repsMax = baseRepsMax + bmiAdj.repsDelta;
+
+      // Apply BMI RPE adjustments (clamp between 5 and 10)
+      const baseRpe = slot.role === 'primary' ? block.rpeMax : block.rpeMin;
+      const rpe = Math.max(5, Math.min(10, baseRpe + bmiAdj.rpeDelta));
 
       generatedExercises.push({
         exercise_id: exercise.id,
@@ -186,9 +259,9 @@ export function generateProgram(
         category: exercise.category,
         role: slot.role,
         sets: setsForRole,
-        reps_min: slot.role === 'accessory' ? Math.max(block.repsMin, 10) : block.repsMin,
-        reps_max: slot.role === 'accessory' ? Math.max(block.repsMax, 15) : block.repsMax,
-        rpe: slot.role === 'primary' ? block.rpeMax : block.rpeMin,
+        reps_min: repsMin,
+        reps_max: repsMax,
+        rpe,
         weight: adjustedWeight,
         is_calibration: true,
         notes: 'Peso de calibración — ajusta después de la sesión 1',
