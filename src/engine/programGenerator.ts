@@ -179,6 +179,7 @@ function maxExercisesForDuration(sessionMinutes: number): number {
  * @param goal - hypertrophy | strength | fat_loss | general
  * @param bmi - Body Mass Index (kg/m²)
  * @param sessionMinutes - Available minutes per session
+ * @param gender - male | female
  */
 export function generateProgram(
   exercises: Exercise[],
@@ -188,7 +189,8 @@ export function generateProgram(
   keyLifts?: { squat: number; bench: number; deadlift: number; ohp: number },
   goal: string = 'hypertrophy',
   bmi: number = 22,
-  sessionMinutes: number = 60
+  sessionMinutes: number = 60,
+  gender: string = 'male'
 ): GeneratedProgram {
   const split = getSplitTemplate(days);
   const block = BLOCKS[0]; // Generate Day 1 details for Volume block (Week 1)
@@ -235,7 +237,7 @@ export function generateProgram(
 
       // Get weight: override > estimate, then apply BMI scale
       const baseWeight = weightOverrides[exercise.name]
-        ?? estimateWeight(exercise.name, bodyweight, experience);
+        ?? estimateWeight(exercise.name, bodyweight, experience, gender);
       const bmiScaledWeight = Math.round(baseWeight * bmiAdj.weightScale / 2.5) * 2.5;
 
       // Adjust weight for accessories (they use lighter weight in volume phase)

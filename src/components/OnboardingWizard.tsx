@@ -73,6 +73,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   // Step 1: Identity
   const [name, setName] = useState('');
+  const [gender, setGender] = useState<'male' | 'female'>('male');
   const [bodyweight, setBodyweight] = useState<number>(75);
   const [height, setHeight] = useState<number>(170);
 
@@ -95,7 +96,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   const next = () => {
     if (step === 2 && !liftsEstimated) {
-      const estimated = estimateKeyLifts(bodyweight, experience);
+      const estimated = estimateKeyLifts(bodyweight, experience, gender);
       setKeyLifts(estimated);
       setLiftsEstimated(true);
     }
@@ -125,6 +126,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
       await supabase.from('profiles').upsert({
         id: user.id,
         name,
+        gender,
         bodyweight,
         height,
         training_experience: experience,
@@ -154,7 +156,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
       }
 
       const bmi = bodyweight / ((height / 100) ** 2);
-      const program = generateProgram(exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes);
+      const program = generateProgram(exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes, gender);
 
       const { data: savedProgram, error: pErr } = await supabase
         .from('programs')
@@ -243,6 +245,17 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                     placeholder="Tu nombre"
                     className={inputCls}
                     autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Género</label>
+                  <ChipGroup
+                    options={[
+                      { value: 'male', label: 'Masculino' },
+                      { value: 'female', label: 'Femenino' },
+                    ]}
+                    value={gender}
+                    onChange={(v) => { setGender(v as 'male' | 'female'); setLiftsEstimated(false); }}
                   />
                 </div>
                 <div>
