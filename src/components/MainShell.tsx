@@ -669,22 +669,42 @@ function LibraryView() {
 
       if (!yesExercises || yesExercises.length === 0) throw new Error('No exercises with YES status');
 
-      // Fetch current working weights for key lift overrides
+      // Fetch current working weights — these reflect the user's actual progress,
+      // not initial estimates, so the regenerated program continues from where they are
       const { data: wwData } = await supabase
         .from('working_weights')
         .select('exercise_id, weight, exercise:exercises(name)')
         .eq('user_id', user.id);
 
       const keyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
+      const workingWeightMap = new Map<string, number>();
       if (wwData) {
         for (const ww of wwData) {
           const name = (ww.exercise as any)?.name;
+          workingWeightMap.set(ww.exercise_id, Number(ww.weight));
           if (name === 'Barra Back Squat') keyLifts.squat = Number(ww.weight);
           if (name === 'Barra Press de Banca') keyLifts.bench = Number(ww.weight);
           if (name === 'Peso Muerto Convencional') keyLifts.deadlift = Number(ww.weight);
           if (name === 'Barra Press Militar') keyLifts.ohp = Number(ww.weight);
         }
       }
+
+      // Determine where the user is in the program based on completed sessions
+      const { data: oldProgram } = await supabase
+        .from('programs')
+        .select('id, total_days')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const { count: totalSessions } = await supabase
+        .from('sessions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      const sessCount = totalSessions ?? 0;
+      const hasHistory = sessCount > 0;
 
       const bw = Number(profile.bodyweight) || 75;
       const ht = Number(profile.height) || 170;
@@ -702,15 +722,22 @@ function LibraryView() {
         profile.gender ?? 'male'
       );
 
-      // Delete old program + days
-      const { data: oldProgram } = await supabase
-        .from('programs')
-        .select('id')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // If user has session history, override generated weights with actual working
+      // weights and remove calibration flags — the user has already calibrated
+      if (hasHistory) {
+        for (const day of program.days) {
+          for (const ex of day.exercises) {
+            const actualWeight = workingWeightMap.get(ex.exercise_id);
+            if (actualWeight !== undefined) {
+              ex.weight = actualWeight;
+            }
+            ex.is_calibration = false;
+            ex.notes = '';
+          }
+        }
+      }
 
+      // Delete old program days (but NOT sessions — those are the user's history)
       if (oldProgram) {
         await supabase.from('program_days').delete().eq('program_id', oldProgram.id);
         await supabase.from('programs').delete().eq('id', oldProgram.id);
