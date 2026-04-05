@@ -4,11 +4,12 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import type { Exercise, Session, SessionLog, WorkingWeight } from '../types';
 import { CATEGORY_LABELS, DEFAULT_EXERCISES, type MovementCategory, type ExerciseStatus } from '../types';
+import { generateProgram } from '../engine/programGenerator';
 import ProgramView from './ProgramView';
 import {
   Activity, Dumbbell, BookOpen, LineChart, ClipboardList,
   Plus, Check, ChevronDown, ChevronRight,
-  LogOut, Save, Trash2
+  LogOut, Save, Trash2, RefreshCw, Loader2
 } from 'lucide-react';
 
 // ─── Animation Variants ───────────────────────────────────
@@ -472,18 +473,57 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           onChange={(e) => setSessionName(e.target.value)}
           className="w-full bg-transparent border-b border-outline-variant/20 pb-2 text-on-surface text-lg font-headline font-bold placeholder:text-on-surface-variant/30 outline-none focus:border-primary transition-colors mb-3"
         />
-        <div className="flex gap-4">
+        <div className="flex gap-4 mb-3">
           <div className="flex-1">
             <label className="text-on-surface-variant/60 text-[10px] font-bold uppercase tracking-widest block mb-1">Semana</label>
-            <input type="number" min={1} max={12} value={weekNum} onChange={(e) => setWeekNum(+e.target.value)}
-              className={inputNumCls} />
+            <p className="text-center text-on-surface font-headline font-extrabold text-2xl">{weekNum}</p>
           </div>
           <div className="flex-1">
             <label className="text-on-surface-variant/60 text-[10px] font-bold uppercase tracking-widest block mb-1">Bloque</label>
-            <input type="number" min={1} max={4} value={blockNum} onChange={(e) => setBlockNum(+e.target.value)}
-              className={inputNumCls} />
+            <p className="text-center text-primary font-headline font-extrabold text-2xl">{blockName || blockNum}</p>
           </div>
         </div>
+
+        {/* Periodization progress bar */}
+        {hasProgram && (
+          <div className="space-y-2">
+            <div className="flex gap-1">
+              {([
+                { name: 'Volumen', weeks: 4, num: 1 },
+                { name: 'Intensidad', weeks: 4, num: 2 },
+                { name: 'Pico', weeks: 3, num: 3 },
+                { name: 'Descarga', weeks: 1, num: 4 },
+              ] as const).map((b) => {
+                const isActive = blockNum === b.num;
+                const isPast = blockNum > b.num;
+                return (
+                  <div key={b.num} className="flex-1 flex flex-col items-center gap-1">
+                    <div
+                      className={`h-1.5 w-full rounded-full transition-all ${
+                        isActive
+                          ? 'bg-primary-container'
+                          : isPast
+                          ? 'bg-primary/30'
+                          : 'bg-outline-variant/15'
+                      }`}
+                    />
+                    <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                      isActive ? 'text-primary' : 'text-on-surface-variant/30'
+                    }`}>
+                      {b.name}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-on-surface-variant/40 text-[10px] font-body text-center">
+              {blockNum === 1 && 'Alto volumen, intensidad moderada — construyendo base muscular'}
+              {blockNum === 2 && 'Volumen moderado, alta intensidad — ganando fuerza'}
+              {blockNum === 3 && 'Bajo volumen, máxima intensidad — expresando fuerza'}
+              {blockNum === 4 && 'Volumen e intensidad bajos — recuperación activa'}
+            </p>
+          </div>
+        )}
       </motion.div>
 
       {/* Exercise Logs */}
@@ -573,6 +613,8 @@ function LibraryView() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<MovementCategory | null>(null);
   const [seeding, setSeeding] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerated, setRegenerated] = useState(false);
 
   const fetchExercises = async () => {
     if (!user) return;
@@ -601,6 +643,108 @@ function LibraryView() {
     const next: ExerciseStatus = ex.status === 'YES' ? 'SUB' : ex.status === 'SUB' ? 'NO' : 'YES';
     await supabase.from('exercises').update({ status: next }).eq('id', ex.id);
     setExercises(exercises.map((e) => e.id === ex.id ? { ...e, status: next } : e));
+  };
+
+  const regenerateProgram = async () => {
+    if (!user) return;
+    setRegenerating(true);
+    setRegenerated(false);
+
+    try {
+      // Fetch profile for generation params
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('bodyweight, height, training_experience, goal, schedule_days, session_minutes, gender')
+        .eq('id', user.id)
+        .single();
+
+      if (!profile) throw new Error('Profile not found');
+
+      // Fetch current YES exercises
+      const { data: yesExercises } = await supabase
+        .from('exercises')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'YES');
+
+      if (!yesExercises || yesExercises.length === 0) throw new Error('No exercises with YES status');
+
+      // Fetch current working weights for key lift overrides
+      const { data: wwData } = await supabase
+        .from('working_weights')
+        .select('exercise_id, weight, exercise:exercises(name)')
+        .eq('user_id', user.id);
+
+      const keyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
+      if (wwData) {
+        for (const ww of wwData) {
+          const name = (ww.exercise as any)?.name;
+          if (name === 'Barra Back Squat') keyLifts.squat = Number(ww.weight);
+          if (name === 'Barra Press de Banca') keyLifts.bench = Number(ww.weight);
+          if (name === 'Peso Muerto Convencional') keyLifts.deadlift = Number(ww.weight);
+          if (name === 'Barra Press Militar') keyLifts.ohp = Number(ww.weight);
+        }
+      }
+
+      const bw = Number(profile.bodyweight) || 75;
+      const ht = Number(profile.height) || 170;
+      const bmi = bw / ((ht / 100) ** 2);
+
+      const program = generateProgram(
+        yesExercises,
+        profile.schedule_days,
+        bw,
+        profile.training_experience,
+        keyLifts.squat > 0 ? keyLifts : undefined,
+        profile.goal,
+        bmi,
+        profile.session_minutes ?? 60,
+        profile.gender ?? 'male'
+      );
+
+      // Delete old program + days
+      const { data: oldProgram } = await supabase
+        .from('programs')
+        .select('id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (oldProgram) {
+        await supabase.from('program_days').delete().eq('program_id', oldProgram.id);
+        await supabase.from('programs').delete().eq('id', oldProgram.id);
+      }
+
+      // Insert new program
+      const { data: savedProgram, error: pErr } = await supabase
+        .from('programs')
+        .insert({
+          user_id: user.id,
+          name: program.name,
+          split_type: program.split_type,
+          total_days: program.total_days,
+        })
+        .select()
+        .single();
+
+      if (pErr || !savedProgram) throw pErr;
+
+      const dayRows = program.days.map((d) => ({
+        program_id: savedProgram.id,
+        day_number: d.day_number,
+        day_name: d.day_name,
+        exercises: d.exercises,
+      }));
+      await supabase.from('program_days').insert(dayRows);
+
+      setRegenerated(true);
+      setTimeout(() => setRegenerated(false), 3000);
+    } catch (err) {
+      console.error('Program regeneration failed:', err);
+    }
+
+    setRegenerating(false);
   };
 
   const grouped = Object.entries(CATEGORY_LABELS).map(([cat, label]) => ({
@@ -680,6 +824,32 @@ function LibraryView() {
             </AnimatePresence>
           </motion.div>
         ))
+      )}
+
+      {/* Regenerate Program Button */}
+      {!loading && exercises.length > 0 && (
+        <motion.div variants={fadeUp} className="pt-4 pb-8">
+          <button
+            onClick={regenerateProgram}
+            disabled={regenerating}
+            className={`w-full font-headline font-bold py-4 rounded-full text-lg tracking-tight flex items-center justify-center gap-3 transition-all shadow-lg disabled:opacity-40 ${
+              regenerated
+                ? 'bg-green-100 text-green-700 shadow-green-100/20'
+                : 'bg-primary-container text-on-primary-container shadow-primary-container/20 hover:scale-[1.02] active:scale-95'
+            }`}
+          >
+            {regenerated ? (
+              <><Check size={20} /> Programa Actualizado</>
+            ) : regenerating ? (
+              <><Loader2 size={18} className="animate-spin" /> Regenerando Programa...</>
+            ) : (
+              <><RefreshCw size={18} /> Actualizar Programa</>
+            )}
+          </button>
+          <p className="text-on-surface-variant/40 text-xs font-body text-center mt-2">
+            Regenera tu programa de 12 semanas con los ejercicios activos actuales.
+          </p>
+        </motion.div>
       )}
     </motion.div>
   );
