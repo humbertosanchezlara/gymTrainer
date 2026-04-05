@@ -16,6 +16,7 @@ CREATE TYPE movement_category AS ENUM (
 CREATE TABLE profiles (
   id UUID REFERENCES auth.users(id) PRIMARY KEY,
   name TEXT,
+  gender TEXT DEFAULT 'male',
   bodyweight NUMERIC,
   height NUMERIC,
   training_experience TEXT,
