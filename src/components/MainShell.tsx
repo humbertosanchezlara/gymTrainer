@@ -27,7 +27,7 @@ const NAV = [
   { id: 'dashboard', label: 'Inicio', icon: Activity },
   { id: 'program', label: 'Programa', icon: ClipboardList },
   { id: 'session', label: 'Entrenar', icon: Dumbbell },
-  { id: 'library', label: 'Ejercicios', icon: BookOpen },
+  { id: 'library', label: 'Ajustes', icon: BookOpen },
   { id: 'progress', label: 'Progreso', icon: LineChart },
 ] as const;
 
@@ -661,7 +661,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     );
   }
 
-  const inputNumCls = "w-full bg-surface-container-low border-none rounded-lg py-2 px-3 text-center text-on-surface outline-none focus:ring-1 focus:ring-primary transition-colors font-body text-sm";
+  const inputNumCls = "w-full bg-white dark:bg-white/10 border border-outline-variant/30 rounded-lg py-2.5 px-3 text-center text-on-surface outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all font-body text-sm shadow-sm";
 
   return (
     <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6 max-w-2xl">
@@ -787,12 +787,13 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
                 { label: 'RPE', field: 'rpe', val: log.rpe },
               ].map((f) => (
                 <div key={f.field}>
-                  <label className="text-on-surface-variant/50 text-[10px] font-bold uppercase tracking-widest block mb-1">{f.label}</label>
+                  <label className="text-on-surface-variant/50 text-[10px] font-bold uppercase tracking-widest block mb-1.5">{f.label}</label>
                   <input
                     type="number"
                     value={f.val}
                     onChange={(e) => updateLog(i, f.field, +e.target.value)}
                     className={inputNumCls}
+                    inputMode="decimal"
                   />
                 </div>
               ))}
@@ -1012,8 +1013,14 @@ function LibraryView() {
     <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6 max-w-2xl">
       <motion.div variants={fadeUp} className="flex items-end justify-between">
         <div>
-          <h2 className="text-4xl font-headline font-extrabold tracking-tight mb-1 text-on-surface">Biblioteca de Ejercicios</h2>
-          <p className="text-on-surface-variant font-body text-sm">Toca el estado para cambiar: YES → SUB → NO</p>
+          <h2 className="text-4xl font-headline font-extrabold tracking-tight mb-1 text-on-surface">Ajusta tu Programa</h2>
+          <p className="text-on-surface-variant font-body text-sm mb-1">Elige qué ejercicios incluir en tu programa. Toca el estado para cambiarlo:</p>
+          <ul className="text-on-surface-variant font-body text-sm space-y-0.5 mb-1">
+            <li><span className="text-primary font-bold">YES</span> — incluido en tu programa</li>
+            <li><span className="text-on-surface font-bold">SUB</span> — usado como sustituto si falta equipo</li>
+            <li><span className="text-on-surface-variant font-bold">NO</span> — excluido del programa</li>
+          </ul>
+          <p className="text-on-surface-variant/70 font-body text-xs">Una vez que hagas tus cambios, toca <span className="font-bold text-primary">Actualizar Programa</span> al final de la lista para regenerar tu plan.</p>
         </div>
         {exercises.length === 0 && !loading && (
           <button

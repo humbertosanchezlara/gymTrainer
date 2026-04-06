@@ -180,10 +180,10 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
       await supabase.from('program_days').insert(dayRows);
 
       const mainLifts = [
-        { name: 'Barbell Back Squat', weight: keyLifts.squat },
-        { name: 'Barbell Bench Press', weight: keyLifts.bench },
-        { name: 'Conventional Deadlift', weight: keyLifts.deadlift },
-        { name: 'Barbell OHP', weight: keyLifts.ohp },
+        { name: 'Barra Back Squat', weight: keyLifts.squat },
+        { name: 'Barra Press de Banca', weight: keyLifts.bench },
+        { name: 'Peso Muerto Convencional', weight: keyLifts.deadlift },
+        { name: 'Barra Press Militar', weight: keyLifts.ohp },
       ];
 
       for (const lift of mainLifts) {
