@@ -720,9 +720,6 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       <motion.div variants={fadeUp} className="card-elevated rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <span className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Detalles de la Sesión</span>
-          {hasProgram && (
-            <span className="text-primary/60 text-[10px] font-bold uppercase tracking-widest">Llenado automático</span>
-          )}
         </div>
         <input
           type="text"
@@ -819,7 +816,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
               {[
                 { label: 'Series', field: 'sets', val: log.sets },
                 { label: 'Reps', field: 'reps_per_set', val: log.reps_per_set },
-                { label: 'Peso', field: 'weight', val: log.weight },
+                { label: 'Peso (kg)', field: 'weight', val: log.weight },
                 { label: 'RPE', field: 'rpe', val: log.rpe },
               ].map((f) => (
                 <div key={f.field}>
@@ -834,6 +831,9 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
                 </div>
               ))}
             </div>
+            <p className="text-on-surface-variant/40 text-[10px] font-body mt-1">
+              <span className="font-bold text-on-surface-variant/60">RPE</span> — esfuerzo percibido del 1 al 10. Ej: 7 = podías hacer 3 reps más · 8 = 2 más · 9 = 1 más · 10 = máximo esfuerzo
+            </p>
           </motion.div>
         ))}
       </AnimatePresence>
