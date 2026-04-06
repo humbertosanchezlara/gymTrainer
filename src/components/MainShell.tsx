@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -494,6 +494,17 @@ function getBlockInfo(week: number): { blockNum: number; blockName: string } {
   return { blockNum: 4, blockName: 'Descarga' };
 }
 
+interface SessionDraft {
+  dayNum: number;
+  weekNum: number;
+  sessionName: string;
+  logs: SessionLogEntry[];
+}
+
+function sessionDraftKey(userId: string) {
+  return `session_draft_${userId}`;
+}
+
 function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const { user } = useAuth();
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -507,6 +518,14 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [saved, setSaved] = useState(false);
   const [loadingProgram, setLoadingProgram] = useState(true);
   const [hasProgram, setHasProgram] = useState(false);
+  const draftRestoredRef = useRef(false);
+
+  // Persist draft to localStorage whenever logs or sessionName change
+  useEffect(() => {
+    if (!user || loadingProgram || !draftRestoredRef.current) return;
+    const draft: SessionDraft = { dayNum, weekNum, sessionName, logs };
+    localStorage.setItem(sessionDraftKey(user.id), JSON.stringify(draft));
+  }, [logs, sessionName, user, dayNum, weekNum, loadingProgram]);
 
   useEffect(() => {
     if (!user) return;
@@ -550,6 +569,23 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       setBlockNum(bNum);
       setBlockName(bName);
 
+      // Check if there's a saved draft for this same day/week
+      const savedDraft = localStorage.getItem(sessionDraftKey(user.id));
+      if (savedDraft) {
+        try {
+          const draft: SessionDraft = JSON.parse(savedDraft);
+          if (draft.dayNum === currentDayNum && draft.weekNum === currentWeek) {
+            setSessionName(draft.sessionName);
+            setLogs(draft.logs);
+            setLoadingProgram(false);
+            draftRestoredRef.current = true;
+            return;
+          }
+        } catch {
+          localStorage.removeItem(sessionDraftKey(user.id));
+        }
+      }
+
       const { data: programDay } = await supabase
         .from('program_days')
         .select('*')
@@ -590,6 +626,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       }
 
       setLoadingProgram(false);
+      draftRestoredRef.current = true;
     };
 
     loadSession();
@@ -644,6 +681,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       );
     }
 
+    localStorage.removeItem(sessionDraftKey(user.id));
     setSaving(false);
     setSaved(true);
     setTimeout(() => {
