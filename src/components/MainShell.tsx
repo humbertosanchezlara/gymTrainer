@@ -9,8 +9,10 @@ import ProgramView from './ProgramView';
 import {
   Activity, Dumbbell, BookOpen, LineChart, ClipboardList,
   Plus, Check, ChevronDown, ChevronRight,
-  LogOut, Save, Trash2, RefreshCw, Loader2, Send, Sparkles
+  LogOut, Save, Trash2, RefreshCw, Loader2, Send, Sparkles, Info
 } from 'lucide-react';
+import ExerciseDetailModal from './ExerciseDetailModal';
+import { getCatalogEntry } from '../data/exerciseCatalog';
 
 // ─── Animation Variants ───────────────────────────────────
 const stagger = {
@@ -518,6 +520,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [saved, setSaved] = useState(false);
   const [loadingProgram, setLoadingProgram] = useState(true);
   const [hasProgram, setHasProgram] = useState(false);
+  const [detailExercise, setDetailExercise] = useState<string | null>(null);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -794,7 +797,18 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           >
             <div className="flex items-center justify-between">
               {log.exercise_name ? (
-                <span className="text-on-surface font-headline font-bold text-lg tracking-tight">{log.exercise_name}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-on-surface font-headline font-bold text-lg tracking-tight truncate">{log.exercise_name}</span>
+                  {getCatalogEntry(log.exercise_name) && (
+                    <button
+                      onClick={() => setDetailExercise(log.exercise_name)}
+                      className="shrink-0 p-1 rounded-full text-primary/60 hover:text-primary hover:bg-primary-container/20 transition-colors"
+                      title="Ver instrucciones"
+                    >
+                      <Info size={16} />
+                    </button>
+                  )}
+                </div>
               ) : (
                 <select
                   value={log.exercise_id}
@@ -859,6 +873,14 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           </button>
         </motion.div>
       )}
+
+      {/* Exercise Detail Modal */}
+      {detailExercise && (
+        <ExerciseDetailModal
+          exerciseName={detailExercise}
+          onClose={() => setDetailExercise(null)}
+        />
+      )}
     </motion.div>
   );
 }
@@ -874,6 +896,7 @@ function LibraryView() {
   const [seeding, setSeeding] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
+  const [detailExercise, setDetailExercise] = useState<string | null>(null);
 
   const fetchExercises = async () => {
     if (!user) return;
@@ -1101,10 +1124,21 @@ function LibraryView() {
                   <div className="px-5 pb-4 space-y-1">
                     {group.items.map((ex) => (
                       <div key={ex.id} className="flex items-center justify-between py-2.5 px-3 -mx-1 rounded-lg hover:bg-surface-container-high/40 transition-colors">
-                        <span className="text-on-surface font-body text-sm">{ex.name}</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-on-surface font-body text-sm truncate">{ex.name}</span>
+                          {getCatalogEntry(ex.name) && (
+                            <button
+                              onClick={() => setDetailExercise(ex.name)}
+                              className="shrink-0 p-0.5 rounded-full text-primary/40 hover:text-primary transition-colors"
+                              title="Ver instrucciones"
+                            >
+                              <Info size={14} />
+                            </button>
+                          )}
+                        </div>
                         <button
                           onClick={() => toggleStatus(ex)}
-                          className={`text-xs font-headline font-bold px-3 py-1 rounded-full border ${statusColor[ex.status]} transition-all hover:scale-105 active:scale-95`}
+                          className={`shrink-0 text-xs font-headline font-bold px-3 py-1 rounded-full border ${statusColor[ex.status]} transition-all hover:scale-105 active:scale-95`}
                         >
                           {ex.status}
                         </button>
@@ -1142,6 +1176,14 @@ function LibraryView() {
             Regenera tu programa de 12 semanas con los ejercicios activos actuales.
           </p>
         </motion.div>
+      )}
+
+      {/* Exercise Detail Modal */}
+      {detailExercise && (
+        <ExerciseDetailModal
+          exerciseName={detailExercise}
+          onClose={() => setDetailExercise(null)}
+        />
       )}
     </motion.div>
   );
