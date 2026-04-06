@@ -238,7 +238,6 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [nextDayName, setNextDayName] = useState<string | null>(null);
   const [nextDayNum, setNextDayNum] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
 
   // Smart adjustment state
   const [adjustInput, setAdjustInput] = useState('');
@@ -267,7 +266,6 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
         if (dayData) setNextDayName(dayData.day_name);
       }
 
-      setLoading(false);
     });
   }, [user]);
 
