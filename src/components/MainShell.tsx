@@ -9,7 +9,7 @@ import ProgramView from './ProgramView';
 import {
   Activity, Dumbbell, BookOpen, LineChart, ClipboardList,
   Plus, Check, ChevronDown, ChevronRight,
-  LogOut, Save, Trash2, RefreshCw, Loader2
+  LogOut, Save, Trash2, RefreshCw, Loader2, Send, Sparkles
 } from 'lucide-react';
 
 // ─── Animation Variants ───────────────────────────────────
@@ -136,23 +136,122 @@ export default function MainShell() {
 // ═══════════════════════════════════════════════════════════
 //  DASHBOARD VIEW
 // ═══════════════════════════════════════════════════════════
+// ─── Smart Adjustment Parser ─────────────────────────────
+interface SessionAdjustment {
+  type: 'deload' | 'reduce_time' | 'swap_exercise' | 'general';
+  weightScale?: number;
+  rpeDelta?: number;
+  maxExercises?: number;
+  reason: string;
+  details: string;
+}
+
+function parseAdjustmentRequest(text: string): SessionAdjustment[] {
+  const lower = text.toLowerCase();
+  const adjustments: SessionAdjustment[] = [];
+
+  // Fatigue detection: sleep, tiredness, soreness, heavy feeling
+  const fatigueKeywords = ['cansado', 'cansada', 'fatigado', 'fatigada', 'pesado', 'pesada',
+    'agotado', 'agotada', 'dormí', 'dormi', 'sueño', 'sueno', 'desvelé', 'desvele',
+    'no descansé', 'no descanse', 'mal dormido', 'mal dormida', 'horas de sueño',
+    'exhausto', 'exhausta', 'drenado', 'drenada'];
+  const sleepMatch = lower.match(/dorm[ií]\s*(\d+)\s*hora/);
+  const hasFatigue = fatigueKeywords.some(k => lower.includes(k));
+  const lowSleep = sleepMatch && parseInt(sleepMatch[1]) < 6;
+
+  if (hasFatigue || lowSleep) {
+    const severity = lowSleep && parseInt(sleepMatch![1]) <= 4 ? 0.75 : 0.80;
+    adjustments.push({
+      type: 'deload',
+      weightScale: severity,
+      rpeDelta: -1.5,
+      reason: 'Fatiga detectada',
+      details: lowSleep
+        ? `Descanso insuficiente (${sleepMatch![1]}h). Peso reducido ${Math.round((1 - severity) * 100)}%, RPE -1.5`
+        : `Fatiga general. Peso reducido ${Math.round((1 - severity) * 100)}%, RPE -1.5`,
+    });
+  }
+
+  // Pain detection
+  const painKeywords = ['dolor', 'duele', 'molestia', 'lesión', 'lesion', 'lastimé', 'lastime',
+    'inflamado', 'inflamada', 'pinzamiento', 'contractura'];
+  const hasPain = painKeywords.some(k => lower.includes(k));
+
+  if (hasPain) {
+    adjustments.push({
+      type: 'deload',
+      weightScale: 0.70,
+      rpeDelta: -2,
+      reason: 'Dolor / molestia reportada',
+      details: 'Peso reducido 30%, RPE -2. Presta atención a la técnica y detente si el dolor persiste.',
+    });
+  }
+
+  // Time reduction
+  const timeMatch = lower.match(/(\d+)\s*min/);
+  const timeKeywords = ['poco tiempo', 'rápido', 'rapido', 'corta', 'prisa', 'apurado', 'apurada',
+    'menos tiempo', 'acortar', 'reducir tiempo'];
+  const hasTimeConstraint = timeKeywords.some(k => lower.includes(k)) || timeMatch;
+
+  if (hasTimeConstraint) {
+    const minutes = timeMatch ? parseInt(timeMatch[1]) : 30;
+    const maxEx = Math.max(3, Math.floor((minutes - 5) / 7));
+    adjustments.push({
+      type: 'reduce_time',
+      maxExercises: maxEx,
+      reason: 'Sesión reducida',
+      details: timeMatch
+        ? `Ajustada a ${minutes} min (~${maxEx} ejercicios). Se priorizan compuestos.`
+        : `Sesión acortada (~${maxEx} ejercicios). Se priorizan compuestos.`,
+    });
+  }
+
+  // Equipment issues
+  const equipKeywords = ['no tengo', 'sin barra', 'sin mancuerna', 'no hay', 'falta equipo',
+    'equipo', 'máquina', 'maquina', 'rota', 'ocupada', 'ocupado'];
+  const hasEquipIssue = equipKeywords.some(k => lower.includes(k));
+
+  if (hasEquipIssue) {
+    adjustments.push({
+      type: 'swap_exercise',
+      reason: 'Problema de equipamiento',
+      details: 'Los ejercicios que requieran el equipo faltante se sustituirán por alternativas disponibles.',
+    });
+  }
+
+  // If nothing specific detected, treat as general adjustment
+  if (adjustments.length === 0) {
+    adjustments.push({
+      type: 'general',
+      weightScale: 0.90,
+      rpeDelta: -1,
+      reason: 'Ajuste general',
+      details: 'Se aplicó una reducción moderada: peso -10%, RPE -1.',
+    });
+  }
+
+  return adjustments;
+}
+
 function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const { user } = useAuth();
-  const [weights, setWeights] = useState<WorkingWeight[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [nextDayName, setNextDayName] = useState<string | null>(null);
   const [nextDayNum, setNextDayNum] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Smart adjustment state
+  const [adjustInput, setAdjustInput] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustResult, setAdjustResult] = useState<SessionAdjustment[] | null>(null);
+
   useEffect(() => {
     if (!user) return;
     Promise.all([
-      supabase.from('working_weights').select('*, exercise:exercises(*)').eq('user_id', user.id).order('updated_at', { ascending: false }),
       supabase.from('sessions').select('*').eq('user_id', user.id).order('date', { ascending: false }).limit(5),
       supabase.from('programs').select('id, total_days').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
-    ]).then(async ([wRes, sRes, pRes, countRes]) => {
-      if (wRes.data) setWeights(wRes.data);
+    ]).then(async ([sRes, pRes, countRes]) => {
       if (sRes.data) setSessions(sRes.data);
 
       if (pRes.data) {
@@ -172,7 +271,79 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     });
   }, [user]);
 
-  const topWeights = weights.slice(0, 4);
+  const handleAdjust = async () => {
+    if (!adjustInput.trim() || !user) return;
+    setAdjusting(true);
+    setAdjustResult(null);
+
+    try {
+      const adjustments = parseAdjustmentRequest(adjustInput);
+
+      // Fetch the current program and next day's exercises
+      const { data: prog } = await supabase
+        .from('programs')
+        .select('id, total_days')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (prog && nextDayNum) {
+        const { data: dayData } = await supabase
+          .from('program_days')
+          .select('id, exercises')
+          .eq('program_id', prog.id)
+          .eq('day_number', nextDayNum)
+          .maybeSingle();
+
+        if (dayData && dayData.exercises) {
+          const exercises = dayData.exercises as any[];
+          let adjusted = [...exercises];
+
+          for (const adj of adjustments) {
+            if (adj.weightScale) {
+              adjusted = adjusted.map((ex) => ({
+                ...ex,
+                weight: Math.round((ex.weight * adj.weightScale!) / 2.5) * 2.5,
+              }));
+            }
+            if (adj.rpeDelta) {
+              adjusted = adjusted.map((ex) => ({
+                ...ex,
+                rpe: Math.max(5, Math.min(10, (ex.rpe ?? 7) + adj.rpeDelta!)),
+              }));
+            }
+            if (adj.maxExercises) {
+              // Keep primaries/secondaries first, trim accessories
+              const primaries = adjusted.filter((e) => e.role === 'primary');
+              const secondaries = adjusted.filter((e) => e.role === 'secondary');
+              const accessories = adjusted.filter((e) => e.role === 'accessory');
+              adjusted = [...primaries, ...secondaries, ...accessories].slice(0, adj.maxExercises);
+            }
+          }
+
+          // Mark exercises as adjusted (not calibration)
+          adjusted = adjusted.map((ex) => ({
+            ...ex,
+            notes: 'Ajustado — ' + adjustments.map((a) => a.reason).join(', '),
+          }));
+
+          // Update in Supabase
+          await supabase
+            .from('program_days')
+            .update({ exercises: adjusted })
+            .eq('id', dayData.id);
+        }
+      }
+
+      setAdjustResult(adjustments);
+      setAdjustInput('');
+    } catch (err) {
+      console.error('Error applying adjustments:', err);
+    } finally {
+      setAdjusting(false);
+    }
+  };
 
   return (
     <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-8">
@@ -195,39 +366,90 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           onClick={() => onNavigate('session')}
           className="relative z-10 bg-primary-container text-on-primary-container font-headline font-bold px-8 py-4 rounded-full text-lg tracking-tight hover:scale-[1.03] active:scale-95 transition-all shadow-lg shadow-primary-container/25 flex items-center gap-2 group/btn"
         >
-          Iniciar Sesión
+          Comenzar Rutina
           <Dumbbell size={18} className="group-hover/btn:rotate-12 transition-transform" />
         </button>
       </motion.div>
 
-      {/* Working Weights Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {loading
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <motion.div key={i} variants={fadeUp} className="card-elevated rounded-xl p-6 animate-pulse h-36" />
-            ))
-          : topWeights.length > 0
-          ? topWeights.map((w) => (
-              <motion.div
-                key={w.id}
-                variants={fadeUp}
-                className="card-elevated rounded-xl p-6 flex flex-col justify-between hover:shadow-md transition-shadow"
-              >
-                <span className="text-on-surface-variant text-xs font-bold uppercase tracking-widest truncate">
-                  {(w.exercise as any)?.name ?? 'Ejercicio'}
-                </span>
-                <div className="mt-3">
-                  <span className="text-4xl font-headline font-extrabold text-on-surface">{w.weight}</span>
-                  <span className="text-primary font-headline font-bold ml-1">kg</span>
+      {/* Smart Adjustment Chat */}
+      <motion.div variants={fadeUp} className="card-elevated rounded-xl p-6 md:p-8">
+        <div className="flex items-center gap-2 mb-4">
+          <Sparkles size={16} className="text-primary" />
+          <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Ajuste Inteligente</h3>
+        </div>
+        <p className="text-on-surface-variant/70 text-sm font-body mb-4">
+          Describe cómo te sientes hoy y ajustaremos tu sesión automáticamente.
+        </p>
+
+        <div className="flex gap-2 mb-2">
+          <textarea
+            value={adjustInput}
+            onChange={(e) => setAdjustInput(e.target.value)}
+            placeholder='Ej: "Dormí 4 horas, me siento pesado y me duele la rodilla"'
+            className="flex-1 bg-surface-container-high/50 border border-outline-variant/20 rounded-xl px-4 py-3 text-on-surface font-body text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-on-surface-variant/40"
+            rows={2}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (adjustInput.trim()) handleAdjust();
+              }
+            }}
+          />
+          <button
+            onClick={handleAdjust}
+            disabled={!adjustInput.trim() || adjusting}
+            className="self-end bg-primary-container text-on-primary-container rounded-xl px-4 py-3 font-headline font-bold text-sm hover:scale-[1.03] active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center gap-2"
+          >
+            {adjusting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            Ajustar
+          </button>
+        </div>
+
+        {/* Quick suggestion chips */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {['😴 Dormí poco', '🤕 Me duele algo', '⏱ Poco tiempo', '🔧 Falta equipo'].map((chip) => (
+            <button
+              key={chip}
+              onClick={() => {
+                const map: Record<string, string> = {
+                  '😴 Dormí poco': 'Dormí muy poco, me siento cansado',
+                  '🤕 Me duele algo': 'Tengo dolor muscular, me siento adolorido',
+                  '⏱ Poco tiempo': 'Solo tengo 30 minutos hoy',
+                  '🔧 Falta equipo': 'No tengo barra disponible hoy',
+                };
+                setAdjustInput(map[chip] ?? chip);
+              }}
+              className="text-xs font-body bg-surface-container-high/50 border border-outline-variant/15 rounded-full px-3 py-1.5 text-on-surface-variant hover:bg-primary-container/20 hover:text-primary transition-colors"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+
+        {/* Adjustment results */}
+        <AnimatePresence>
+          {adjustResult && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-3"
+            >
+              {adjustResult.map((adj, i) => (
+                <div key={i} className="bg-primary-container/15 border border-primary-container/25 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-primary font-headline font-bold text-sm">{adj.reason}</span>
+                  </div>
+                  <p className="text-on-surface-variant text-sm font-body">{adj.details}</p>
                 </div>
-              </motion.div>
-            ))
-          : (
-              <motion.div variants={fadeUp} className="col-span-full card-elevated rounded-xl p-8 text-center text-on-surface-variant font-body">
-                No tienes pesos de trabajo aún. Registra tu primera sesión para empezar.
-              </motion.div>
-            )}
-      </div>
+              ))}
+              <p className="text-primary/70 text-xs font-body flex items-center gap-1">
+                <Check size={12} /> Los ajustes se aplicaron a tu próxima sesión
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
       {/* Recent Sessions */}
       <motion.div variants={fadeUp} className="card-elevated rounded-xl p-6 md:p-8">
