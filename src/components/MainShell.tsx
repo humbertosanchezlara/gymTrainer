@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -494,6 +494,17 @@ function getBlockInfo(week: number): { blockNum: number; blockName: string } {
   return { blockNum: 4, blockName: 'Descarga' };
 }
 
+interface SessionDraft {
+  dayNum: number;
+  weekNum: number;
+  sessionName: string;
+  logs: SessionLogEntry[];
+}
+
+function sessionDraftKey(userId: string) {
+  return `session_draft_${userId}`;
+}
+
 function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const { user } = useAuth();
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -507,6 +518,14 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [saved, setSaved] = useState(false);
   const [loadingProgram, setLoadingProgram] = useState(true);
   const [hasProgram, setHasProgram] = useState(false);
+  const draftRestoredRef = useRef(false);
+
+  // Persist draft to localStorage whenever logs or sessionName change
+  useEffect(() => {
+    if (!user || loadingProgram || !draftRestoredRef.current) return;
+    const draft: SessionDraft = { dayNum, weekNum, sessionName, logs };
+    localStorage.setItem(sessionDraftKey(user.id), JSON.stringify(draft));
+  }, [logs, sessionName, user, dayNum, weekNum, loadingProgram]);
 
   useEffect(() => {
     if (!user) return;
@@ -550,6 +569,23 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       setBlockNum(bNum);
       setBlockName(bName);
 
+      // Check if there's a saved draft for this same day/week
+      const savedDraft = localStorage.getItem(sessionDraftKey(user.id));
+      if (savedDraft) {
+        try {
+          const draft: SessionDraft = JSON.parse(savedDraft);
+          if (draft.dayNum === currentDayNum && draft.weekNum === currentWeek) {
+            setSessionName(draft.sessionName);
+            setLogs(draft.logs);
+            setLoadingProgram(false);
+            draftRestoredRef.current = true;
+            return;
+          }
+        } catch {
+          localStorage.removeItem(sessionDraftKey(user.id));
+        }
+      }
+
       const { data: programDay } = await supabase
         .from('program_days')
         .select('*')
@@ -590,6 +626,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       }
 
       setLoadingProgram(false);
+      draftRestoredRef.current = true;
     };
 
     loadSession();
@@ -644,6 +681,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       );
     }
 
+    localStorage.removeItem(sessionDraftKey(user.id));
     setSaving(false);
     setSaved(true);
     setTimeout(() => {
@@ -682,9 +720,6 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       <motion.div variants={fadeUp} className="card-elevated rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <span className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Detalles de la Sesión</span>
-          {hasProgram && (
-            <span className="text-primary/60 text-[10px] font-bold uppercase tracking-widest">Llenado automático</span>
-          )}
         </div>
         <input
           type="text"
@@ -781,7 +816,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
               {[
                 { label: 'Series', field: 'sets', val: log.sets },
                 { label: 'Reps', field: 'reps_per_set', val: log.reps_per_set },
-                { label: 'Peso', field: 'weight', val: log.weight },
+                { label: 'Peso (kg)', field: 'weight', val: log.weight },
                 { label: 'RPE', field: 'rpe', val: log.rpe },
               ].map((f) => (
                 <div key={f.field}>
@@ -796,6 +831,9 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
                 </div>
               ))}
             </div>
+            <p className="text-on-surface-variant/40 text-[10px] font-body mt-1">
+              <span className="font-bold text-on-surface-variant/60">RPE</span> — esfuerzo percibido del 1 al 10. Ej: 7 = podías hacer 3 reps más · 8 = 2 más · 9 = 1 más · 10 = máximo esfuerzo
+            </p>
           </motion.div>
         ))}
       </AnimatePresence>
