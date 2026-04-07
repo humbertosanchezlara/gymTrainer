@@ -9,7 +9,8 @@ import ProgramView from './ProgramView';
 import {
   Activity, Dumbbell, BookOpen, LineChart, ClipboardList,
   Plus, Check, ChevronDown, ChevronRight,
-  LogOut, Save, Trash2, RefreshCw, Loader2, Send, Sparkles, Info
+  LogOut, Save, Trash2, RefreshCw, Loader2, Send, Sparkles, Info,
+  Clock, Eye, X, AlertTriangle
 } from 'lucide-react';
 import ExerciseDetailModal from './ExerciseDetailModal';
 import { getCatalogEntry } from '../data/exerciseCatalog';
@@ -496,6 +497,12 @@ function getBlockInfo(week: number): { blockNum: number; blockName: string } {
   return { blockNum: 4, blockName: 'Descarga' };
 }
 
+function getRestLabel(rpe: number): string {
+  if (rpe >= 8) return '3–5 min';
+  if (rpe >= 6) return '2–3 min';
+  return '60–90 seg';
+}
+
 interface SessionDraft {
   dayNum: number;
   weekNum: number;
@@ -521,6 +528,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [loadingProgram, setLoadingProgram] = useState(true);
   const [hasProgram, setHasProgram] = useState(false);
   const [detailExercise, setDetailExercise] = useState<string | null>(null);
+  const [confirmDeleteIdx, setConfirmDeleteIdx] = useState<number | null>(null);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -651,6 +659,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
   const removeLog = (idx: number) => {
     setLogs(logs.filter((_, i) => i !== idx));
+    setConfirmDeleteIdx(null);
   };
 
   const handleSave = async () => {
@@ -784,6 +793,18 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
         )}
       </motion.div>
 
+      {/* RPE Reference Banner */}
+      <motion.div variants={fadeUp} className="bg-primary-container/15 border border-primary-container/30 rounded-xl px-4 py-3">
+        <p className="text-[11px] font-bold text-primary/70 uppercase tracking-widest mb-1">RPE — Esfuerzo Percibido</p>
+        <p className="text-on-surface-variant text-xs font-body leading-relaxed">
+          <span className="text-on-surface font-medium">6</span> = quedan 4+ reps ·{' '}
+          <span className="text-on-surface font-medium">7</span> = quedan 3 ·{' '}
+          <span className="text-on-surface font-medium">8</span> = quedan 2 ·{' '}
+          <span className="text-on-surface font-medium">9</span> = queda 1 ·{' '}
+          <span className="text-on-surface font-medium">10</span> = fallo muscular
+        </p>
+      </motion.div>
+
       {/* Exercise Logs */}
       <AnimatePresence>
         {logs.map((log, i) => (
@@ -795,36 +816,80 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
             transition={{ delay: i * 0.04 }}
             className="card-elevated rounded-xl p-5 space-y-3"
           >
-            <div className="flex items-center justify-between">
-              {log.exercise_name ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-on-surface font-headline font-bold text-lg tracking-tight truncate">{log.exercise_name}</span>
-                  {getCatalogEntry(log.exercise_name) && (
-                    <button
-                      onClick={() => setDetailExercise(log.exercise_name)}
-                      className="shrink-0 p-1 rounded-full text-primary/60 hover:text-primary hover:bg-primary-container/20 transition-colors"
-                      title="Ver instrucciones"
-                    >
-                      <Info size={16} />
-                    </button>
-                  )}
+            {/* Header row */}
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                {log.exercise_name ? (
+                  <div>
+                    <span className="text-on-surface font-headline font-bold text-lg tracking-tight leading-tight block">{log.exercise_name}</span>
+                    {getCatalogEntry(log.exercise_name) && (
+                      <button
+                        onClick={() => setDetailExercise(log.exercise_name)}
+                        className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-primary hover:text-primary/80 transition-colors group"
+                      >
+                        <Eye size={11} className="group-hover:scale-110 transition-transform" />
+                        Ver técnica
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <select
+                    value={log.exercise_id}
+                    onChange={(e) => updateLog(i, 'exercise_id', e.target.value)}
+                    className="w-full bg-transparent text-on-surface font-headline font-bold text-lg outline-none appearance-none cursor-pointer"
+                  >
+                    <option value="" className="bg-surface">Seleccionar ejercicio...</option>
+                    {exercises.map((ex) => (
+                      <option key={ex.id} value={ex.id} className="bg-surface">{ex.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Rest time chip + delete */}
+              <div className="flex items-center gap-2 shrink-0 pt-0.5">
+                <div className="flex items-center gap-1 bg-surface-container-highest/60 rounded-full px-2.5 py-1">
+                  <Clock size={10} className="text-on-surface-variant/60" />
+                  <span className="text-[10px] font-bold text-on-surface-variant/70 whitespace-nowrap">{getRestLabel(log.rpe)}</span>
                 </div>
-              ) : (
-                <select
-                  value={log.exercise_id}
-                  onChange={(e) => updateLog(i, 'exercise_id', e.target.value)}
-                  className="flex-1 bg-transparent text-on-surface font-headline font-bold text-lg outline-none appearance-none cursor-pointer"
-                >
-                  <option value="" className="bg-surface">Seleccionar ejercicio...</option>
-                  {exercises.map((ex) => (
-                    <option key={ex.id} value={ex.id} className="bg-surface">{ex.name}</option>
-                  ))}
-                </select>
-              )}
-              <button onClick={() => removeLog(i)} className="text-on-surface-variant/30 hover:text-error transition-colors p-1">
-                <Trash2 size={16} />
-              </button>
+
+                {confirmDeleteIdx === i ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => removeLog(i)}
+                      className="flex items-center gap-1 text-[10px] font-bold text-error bg-error-container/40 hover:bg-error-container/70 px-2 py-1 rounded-full transition-colors"
+                    >
+                      <Trash2 size={10} /> Borrar
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteIdx(null)}
+                      className="text-on-surface-variant/50 hover:text-on-surface-variant transition-colors p-1"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteIdx(i)}
+                    className="text-on-surface-variant/30 hover:text-error transition-colors p-1"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Delete confirmation warning */}
+            {confirmDeleteIdx === i && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="flex items-center gap-2 bg-error-container/20 border border-error/20 rounded-lg px-3 py-2"
+              >
+                <AlertTriangle size={12} className="text-error shrink-0" />
+                <p className="text-[11px] text-error/80 font-body">¿Eliminar <span className="font-bold">{log.exercise_name || 'este ejercicio'}</span>?</p>
+              </motion.div>
+            )}
 
             <div className="grid grid-cols-4 gap-3">
               {[
@@ -834,7 +899,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
                 { label: 'RPE', field: 'rpe', val: log.rpe },
               ].map((f) => (
                 <div key={f.field}>
-                  <label className="text-on-surface-variant/50 text-[10px] font-bold uppercase tracking-widest block mb-1.5">{f.label}</label>
+                  <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-1.5">{f.label}</label>
                   <input
                     type="number"
                     value={f.val}
@@ -845,9 +910,6 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
                 </div>
               ))}
             </div>
-            <p className="text-on-surface-variant/40 text-[10px] font-body mt-1">
-              <span className="font-bold text-on-surface-variant/60">RPE</span> — esfuerzo percibido del 1 al 10. Ej: 7 = podías hacer 3 reps más · 8 = 2 más · 9 = 1 más · 10 = máximo esfuerzo
-            </p>
           </motion.div>
         ))}
       </AnimatePresence>
