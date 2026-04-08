@@ -1109,6 +1109,10 @@ function LibraryView() {
       }));
       await supabase.from('program_days').insert(dayRows);
 
+      // Clear any stale session draft so the next Entrenar load
+      // reads fresh exercises from the newly generated program_days
+      localStorage.removeItem(sessionDraftKey(user.id));
+
       setRegenerated(true);
       setTimeout(() => setRegenerated(false), 3000);
     } catch (err) {
