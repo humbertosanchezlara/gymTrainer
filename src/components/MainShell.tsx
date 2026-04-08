@@ -488,6 +488,47 @@ interface SessionLogEntry {
   weight: number;
   rpe: number;
   notes: string;
+  // Targets from program_days — used for progression logic
+  target_reps_min?: number;
+  target_reps_max?: number;
+  target_rpe?: number;
+}
+
+type ProgressionAction = 'up' | 'keep' | 'warn';
+
+interface ProgressionResult {
+  exercise_name: string;
+  prev_weight: number;
+  next_weight: number;
+  action: ProgressionAction;
+}
+
+/**
+ * Double-progression rule:
+ *   ↑  reps >= target_reps_max  AND  rpe <= target_rpe       → +2.5 kg next session
+ *   ⚠  rpe > target_rpe + 1.5  OR   reps < target_reps_min  → flag (weight unchanged)
+ *   →  everything else                                         → keep
+ */
+function computeProgression(log: SessionLogEntry): ProgressionResult {
+  const { weight, reps_per_set, rpe, target_reps_min, target_reps_max, target_rpe } = log;
+
+  if (target_reps_max === undefined || target_rpe === undefined) {
+    return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'keep' };
+  }
+
+  const hitMaxReps  = reps_per_set >= target_reps_max;
+  const rpeOnTarget = rpe <= target_rpe;
+  const tooHard     = rpe > target_rpe + 1.5;
+  const tooLowReps  = target_reps_min !== undefined && reps_per_set < target_reps_min;
+
+  if (hitMaxReps && rpeOnTarget) {
+    const next = Math.round((weight + 2.5) / 2.5) * 2.5;
+    return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: next, action: 'up' };
+  }
+  if (tooHard || tooLowReps) {
+    return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'warn' };
+  }
+  return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'keep' };
 }
 
 function getBlockInfo(week: number): { blockNum: number; blockName: string } {
@@ -529,6 +570,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [hasProgram, setHasProgram] = useState(false);
   const [detailExercise, setDetailExercise] = useState<string | null>(null);
   const [confirmDeleteIdx, setConfirmDeleteIdx] = useState<number | null>(null);
+  const [progressionResults, setProgressionResults] = useState<ProgressionResult[]>([]);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -630,6 +672,10 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
             weight: currentWeight,
             rpe: ex.rpe ?? 7,
             notes: '',
+            // Store program targets for progression calculation at save time
+            target_reps_min: ex.reps_min,
+            target_reps_max: ex.reps_max,
+            target_rpe: ex.rpe,
           };
         });
 
@@ -686,19 +732,38 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
     await supabase.from('session_logs').insert(logRows);
 
+    // ── Progression logic ─────────────────────────────────────
+    // For each logged exercise, compute whether weight should advance,
+    // stay, or be flagged. Only 'up' actions change the stored weight.
+    const progressions: ProgressionResult[] = [];
+
     for (const l of logs.filter(l => l.exercise_id && l.weight > 0)) {
+      const result = computeProgression(l);
+      progressions.push(result);
+
       await supabase.from('working_weights').upsert(
-        { user_id: user.id, exercise_id: l.exercise_id, weight: l.weight, updated_at: new Date().toISOString() },
+        {
+          user_id: user.id,
+          exercise_id: l.exercise_id,
+          weight: result.next_weight,   // already incremented if 'up'
+          updated_at: new Date().toISOString(),
+        },
         { onConflict: 'user_id,exercise_id' }
       );
     }
 
+    // Only surface results that are noteworthy (up or warn)
+    const notable = progressions.filter(r => r.action !== 'keep');
+    setProgressionResults(notable);
+
     localStorage.removeItem(sessionDraftKey(user.id));
     setSaving(false);
     setSaved(true);
+
+    // If there's progression info show it briefly; otherwise go straight to dashboard
     setTimeout(() => {
       onNavigate('dashboard');
-    }, 1500);
+    }, notable.length > 0 ? 4000 : 1500);
   };
 
   if (loadingProgram) {
@@ -925,7 +990,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
       {/* Save */}
       {logs.length > 0 && (
-        <motion.div variants={fadeUp} className="pt-2">
+        <motion.div variants={fadeUp} className="pt-2 space-y-3">
           <button
             onClick={handleSave}
             disabled={saving || !sessionName}
@@ -933,6 +998,36 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           >
             {saved ? <><Check size={20} /> ¡Guardado!</> : saving ? 'Guardando...' : <><Save size={18} /> Guardar Sesión</>}
           </button>
+
+          {/* Progression summary — shown after save */}
+          <AnimatePresence>
+            {saved && progressionResults.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="card-elevated rounded-xl p-4 space-y-2"
+              >
+                <p className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest">
+                  Progresión automática
+                </p>
+                {progressionResults.map((r) => (
+                  <div key={r.exercise_name} className="flex items-center justify-between gap-3">
+                    <span className="text-on-surface font-body text-sm truncate">{r.exercise_name}</span>
+                    {r.action === 'up' ? (
+                      <span className="shrink-0 flex items-center gap-1 text-xs font-headline font-bold text-primary bg-primary-container/30 px-2.5 py-1 rounded-full">
+                        ↑ {r.prev_weight} → {r.next_weight} kg
+                      </span>
+                    ) : (
+                      <span className="shrink-0 flex items-center gap-1 text-xs font-headline font-bold text-secondary bg-secondary-container/30 px-2.5 py-1 rounded-full">
+                        ⚠ Peso elevado — revisa
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
 
