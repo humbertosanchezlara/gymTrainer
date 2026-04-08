@@ -402,6 +402,28 @@ export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
       'En la prensa de piernas, coloca solo las puntas de los pies en el borde inferior de la plataforma. Empuja extendiendo los tobillos. Baja controladamente estirando los gemelos.',
     images: [`${IMG}/Calf_Press_On_The_Leg_Press_Machine/0.jpg`, `${IMG}/Calf_Press_On_The_Leg_Press_Machine/1.jpg`],
   },
+
+  // ─── NUEVOS — AISLAMIENTO TREN INFERIOR ────────────────
+  'Patada de Glúteo': {
+    instructions:
+      'En la máquina o con una polea baja en cuadrupedia, extiende una pierna hacia atrás y arriba contrayendo el glúteo al final del movimiento. Mantén la cadera estable y el core activo. Baja controladamente sin rotar la pelvis.',
+    images: [`${IMG}/Cable_Kick_Back/0.jpg`, `${IMG}/Cable_Kick_Back/1.jpg`],
+  },
+  'Abductores (Máquina)': {
+    instructions:
+      'Siéntate en la máquina con las almohadillas sobre la cara externa de los muslos. Abre las piernas hacia los lados venciendo la resistencia. Regresa lentamente controlando el movimiento para mantener la tensión.',
+    images: [],
+  },
+  'Aductores (Máquina)': {
+    instructions:
+      'Siéntate en la máquina con las almohadillas sobre la cara interna de los muslos y las piernas abiertas. Junta las piernas apretando los aductores. Abre lentamente regresando a la posición inicial.',
+    images: [`${IMG}/Adductor/0.jpg`, `${IMG}/Adductor/1.jpg`],
+  },
+  'Prensa Horizontal (Máquina)': {
+    instructions:
+      'Siéntate en la máquina de prensa horizontal con la espalda completamente apoyada y los pies en la plataforma a la anchura de los hombros. Empuja la plataforma extendiendo las rodillas sin bloquearlas del todo. Regresa controladamente sin dejar que el peso descanse entre repeticiones.',
+    images: [],
+  },
 };
 
 // Reverse lookup: Spanish name → English name (for DB exercises stored in Spanish)

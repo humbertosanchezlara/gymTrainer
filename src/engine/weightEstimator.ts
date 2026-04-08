@@ -49,6 +49,12 @@ const BW_MULTIPLIERS: Record<string, number> = {
   'Remo en Cable (Sentado)': 0.45,
   'Elevación Talones de Pie': 0.6,
   'Elevación Talones Sentado': 0.4,
+
+  // Aislamiento tren inferior
+  'Patada de Glúteo': 0.15,          // ejercicio de aislamiento, peso muy ligero relativo a PC
+  'Abductores (Máquina)': 0.3,       // máquina de abductores
+  'Aductores (Máquina)': 0.3,        // máquina de aductores
+  'Prensa Horizontal (Máquina)': 1.4, // similar a prensa vertical
 };
 
 // Experience multipliers (applied on top of BW estimates)
@@ -114,6 +120,12 @@ const GENDER_SCALE: Record<string, Record<string, number>> = {
     'Remo en Cable (Sentado)': 0.65,
     'Elevación Talones de Pie': 0.80,
     'Elevación Talones Sentado': 0.80,
+
+    // Aislamiento tren inferior — brecha pequeña (músculos inferiores)
+    'Patada de Glúteo': 0.85,
+    'Abductores (Máquina)': 0.90,
+    'Aductores (Máquina)': 0.90,
+    'Prensa Horizontal (Máquina)': 0.80,
   },
 };
 

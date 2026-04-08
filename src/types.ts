@@ -211,4 +211,9 @@ export const DEFAULT_EXERCISES: { name: string; category: MovementCategory }[] =
   { name: 'Elevación Talones de Pie', category: 'CALVES' },
   { name: 'Elevación Talones Sentado', category: 'CALVES' },
   { name: 'Elevación Talones en Prensa', category: 'CALVES' },
+  // Aislamiento tren inferior
+  { name: 'Patada de Glúteo', category: 'POSTERIOR_CHAIN' },
+  { name: 'Abductores (Máquina)', category: 'POSTERIOR_CHAIN' },
+  { name: 'Aductores (Máquina)', category: 'QUAD_DOMINANT' },
+  { name: 'Prensa Horizontal (Máquina)', category: 'QUAD_DOMINANT' },
 ];
