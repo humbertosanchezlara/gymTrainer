@@ -231,6 +231,28 @@ function maxExercisesForDuration(sessionMinutes: number): number {
   return Math.max(3, Math.floor(usableMinutes / 7));
 }
 
+// ─── Cycle Progression Adjustments ──────────────────────
+/**
+ * Each completed 12-week cycle earns progressive overload on the next one.
+ * Cycle 1 = base. Cycle 2+ gets higher starting RPE, more sets, and a
+ * slightly tighter rep range to reflect the athlete's accumulated capacity.
+ *
+ * Caps at cycle 3 to avoid programming that's unrealistically hard.
+ */
+export interface CycleAdjustments {
+  rpeDelta: number;       // Added to RPE targets across all blocks
+  setsBonus: number;      // Extra sets for compound lifts
+  repsRangeShrink: number; // Rep range compression (shift repsMax down for strength focus)
+  label: string;          // Human-readable cycle label
+}
+
+export function getCycleAdjustments(cycleNumber: number): CycleAdjustments {
+  const cycle = Math.min(cycleNumber, 3); // cap progression at cycle 3
+  if (cycle <= 1) return { rpeDelta: 0,   setsBonus: 0, repsRangeShrink: 0, label: 'Ciclo 1 — Base' };
+  if (cycle === 2) return { rpeDelta: 0.5, setsBonus: 1, repsRangeShrink: 1, label: 'Ciclo 2 — Acumulación' };
+  return              { rpeDelta: 1.0, setsBonus: 1, repsRangeShrink: 2, label: 'Ciclo 3+ — Especialización' };
+}
+
 // ─── Main Generator ──────────────────────────────────────
 /**
  * Generate a complete training program.
@@ -244,6 +266,7 @@ function maxExercisesForDuration(sessionMinutes: number): number {
  * @param bmi - Body Mass Index (kg/m²)
  * @param sessionMinutes - Available minutes per session
  * @param gender - male | female
+ * @param cycleNumber - How many full 12-week cycles the user has completed (1 = first)
  */
 export function generateProgram(
   exercises: Exercise[],
@@ -254,11 +277,13 @@ export function generateProgram(
   goal: string = 'hypertrophy',
   bmi: number = 22,
   sessionMinutes: number = 60,
-  gender: string = 'male'
+  gender: string = 'male',
+  cycleNumber: number = 1
 ): GeneratedProgram {
   const split = getSplitTemplate(days);
   const block = BLOCKS[0]; // Generate Day 1 details for Volume block (Week 1)
   const bmiAdj = getBmiAdjustments(bmi, experience);
+  const cycleAdj = getCycleAdjustments(cycleNumber);
   const maxExercises = maxExercisesForDuration(sessionMinutes);
   const volumeTolerance = deriveVolumeTolerance(sessionMinutes, goal, experience);
 
@@ -296,9 +321,9 @@ export function generateProgram(
 
       // ── Improvement 1: volume-tolerance sets scaling ──
       const baseSetsForRole = slot.role === 'primary'
-        ? block.setsCompound
+        ? block.setsCompound + (slot.role === 'primary' ? cycleAdj.setsBonus : 0)
         : slot.role === 'secondary'
-        ? block.setsCompound - 1
+        ? block.setsCompound - 1 + Math.floor(cycleAdj.setsBonus / 2)
         : block.setsAccessory;
       const setsForRole = scaleSets(baseSetsForRole, volumeTolerance);
 
@@ -312,15 +337,15 @@ export function generateProgram(
         ? Math.round(bmiScaledWeight * 0.9 / 2.5) * 2.5
         : bmiScaledWeight;
 
-      // Apply BMI rep adjustments
+      // Apply BMI + cycle rep adjustments (cycle compresses range for more strength focus)
       const baseRepsMin = slot.role === 'accessory' ? Math.max(block.repsMin, 10) : block.repsMin;
       const baseRepsMax = slot.role === 'accessory' ? Math.max(block.repsMax, 15) : block.repsMax;
       const repsMin = baseRepsMin + bmiAdj.repsDelta;
-      const repsMax = baseRepsMax + bmiAdj.repsDelta;
+      const repsMax = Math.max(repsMin + 1, baseRepsMax + bmiAdj.repsDelta - cycleAdj.repsRangeShrink);
 
-      // Apply BMI RPE adjustments (clamp between 5 and 10)
+      // Apply BMI + cycle RPE adjustments (clamp between 5 and 10)
       const baseRpe = slot.role === 'primary' ? block.rpeMax : block.rpeMin;
-      const rpe = Math.max(5, Math.min(10, baseRpe + bmiAdj.rpeDelta));
+      const rpe = Math.max(5, Math.min(10, baseRpe + bmiAdj.rpeDelta + cycleAdj.rpeDelta));
 
       // ── Improvement 3: heterogeneous schemes ──────────
       const isometricConfig = ISOMETRIC_EXERCISES[exercise.name];
@@ -367,7 +392,7 @@ export function generateProgram(
   });
 
   return {
-    name: `${split.label} — ${capitalize(goal)}`,
+    name: `${split.label} — ${capitalize(goal)} · ${cycleAdj.label}`,
     split_type: split.type,
     total_days: days,
     days: generatedDays,

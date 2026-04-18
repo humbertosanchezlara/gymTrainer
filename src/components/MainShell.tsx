@@ -142,10 +142,11 @@ export default function MainShell() {
 // ═══════════════════════════════════════════════════════════
 // ─── Smart Adjustment Parser ─────────────────────────────
 interface SessionAdjustment {
-  type: 'deload' | 'reduce_time' | 'swap_exercise' | 'general';
+  type: 'deload' | 'reduce_time' | 'swap_exercise' | 'swap_specific' | 'general';
   weightScale?: number;
   rpeDelta?: number;
   maxExercises?: number;
+  targetExerciseName?: string;  // for swap_specific: name fragment to match
   reason: string;
   details: string;
 }
@@ -223,6 +224,28 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
     });
   }
 
+  // Exercise swap — "cambiar X", "quitar X", "reemplazar X", "sustituir X", "en lugar de X", "no quiero X"
+  const swapPatterns = [
+    /(?:cambiar?|quitar?|reemplazar?|sustituir?|cambia|quita|reemplaza|sustituye)\s+(?:el\s+|la\s+|los\s+|las\s+)?(.{4,40}?)(?:\s+por\s+|\s+con\s+|\s*$)/i,
+    /(?:en lugar de|en vez de)\s+(?:el\s+|la\s+)?(.{4,40}?)(?:\s*$|\s*,)/i,
+    /(?:no quiero|no me gusta)\s+(?:el\s+|la\s+)?(.{4,40}?)(?:\s*$|\s*,)/i,
+  ];
+  for (const pattern of swapPatterns) {
+    const m = text.match(pattern);
+    if (m && m[1]) {
+      const target = m[1].trim().replace(/[.,!?]+$/, '');
+      if (target.length >= 3) {
+        adjustments.push({
+          type: 'swap_specific',
+          targetExerciseName: target,
+          reason: `Cambio de ejercicio`,
+          details: `Se buscará un sustituto para "${target}" dentro de la misma categoría muscular.`,
+        });
+        break;
+      }
+    }
+  }
+
   // If nothing specific detected, treat as general adjustment
   if (adjustments.length === 0) {
     adjustments.push({
@@ -242,6 +265,8 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [nextDayName, setNextDayName] = useState<string | null>(null);
   const [nextDayNum, setNextDayNum] = useState<number | null>(null);
+  const [programComplete, setProgramComplete] = useState(false);
+  const [completedWeeks, setCompletedWeeks] = useState(0);
 
   // Smart adjustment state
   const [adjustInput, setAdjustInput] = useState('');
@@ -252,13 +277,22 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     if (!user) return;
     Promise.all([
       supabase.from('sessions').select('*').eq('user_id', user.id).order('date', { ascending: false }).limit(5),
-      supabase.from('programs').select('id, total_days').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('programs').select('id, total_days, total_weeks').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
     ]).then(async ([sRes, pRes, countRes]) => {
       if (sRes.data) setSessions(sRes.data);
 
       if (pRes.data) {
         const totalSessions = countRes.count ?? 0;
+        const totalProgramSessions = pRes.data.total_days * (pRes.data.total_weeks ?? 12);
+        const weeksCompleted = Math.floor(totalSessions / pRes.data.total_days);
+        setCompletedWeeks(Math.min(weeksCompleted, pRes.data.total_weeks ?? 12));
+
+        if (totalSessions >= totalProgramSessions) {
+          setProgramComplete(true);
+          return;
+        }
+
         const dayNum = (totalSessions % pRes.data.total_days) + 1;
         setNextDayNum(dayNum);
         const { data: dayData } = await supabase
@@ -322,13 +356,54 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
               const accessories = adjusted.filter((e) => e.role === 'accessory');
               adjusted = [...primaries, ...secondaries, ...accessories].slice(0, adj.maxExercises);
             }
+            if (adj.type === 'swap_specific' && adj.targetExerciseName) {
+              // Find the exercise in the current day that best matches the target name
+              const target = adj.targetExerciseName.toLowerCase();
+              const targetWords = target.split(/\s+/).filter(w => w.length > 2);
+              const matchIdx = adjusted.findIndex((ex) => {
+                const exName = (ex.name as string ?? '').toLowerCase();
+                return targetWords.some(w => exName.includes(w)) || exName.includes(target);
+              });
+
+              if (matchIdx !== -1) {
+                const matchedEx = adjusted[matchIdx];
+                // Fetch user exercises in same category that are NOT already in the day
+                const currentIds = new Set(adjusted.map((e) => e.exercise_id));
+                const { data: candidates } = await supabase
+                  .from('exercises')
+                  .select('id, name, category')
+                  .eq('user_id', user.id)
+                  .in('status', ['YES', 'SUB'])
+                  .eq('category', matchedEx.category)
+                  .neq('id', matchedEx.exercise_id);
+
+                const substitute = candidates?.find(c => !currentIds.has(c.id));
+                if (substitute) {
+                  adjusted[matchIdx] = {
+                    ...matchedEx,
+                    exercise_id: substitute.id,
+                    name: substitute.name,
+                    notes: `Sustituido por solicitud`,
+                  };
+                  // Update the details with actual names
+                  adj.details = `"${matchedEx.name}" reemplazado por "${substitute.name}".`;
+                } else {
+                  adj.details = `No se encontró sustituto disponible para "${matchedEx.name}" en la misma categoría.`;
+                }
+              } else {
+                adj.details = `No se encontró "${adj.targetExerciseName}" en tu sesión de hoy. Verifica el nombre del ejercicio.`;
+              }
+            }
           }
 
-          // Mark exercises as adjusted (not calibration)
-          adjusted = adjusted.map((ex) => ({
-            ...ex,
-            notes: 'Ajustado — ' + adjustments.map((a) => a.reason).join(', '),
-          }));
+          // Mark non-swap exercises as adjusted
+          const nonSwapReasons = adjustments.filter(a => a.type !== 'swap_specific').map(a => a.reason);
+          if (nonSwapReasons.length > 0) {
+            adjusted = adjusted.map((ex) => {
+              if (ex.notes === 'Sustituido por solicitud') return ex;
+              return { ...ex, notes: 'Ajustado — ' + nonSwapReasons.join(', ') };
+            });
+          }
 
           // Update in Supabase
           await supabase
@@ -349,6 +424,37 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
   return (
     <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-8">
+
+      {/* Program Complete Banner */}
+      <AnimatePresence>
+        {programComplete && (
+          <motion.div
+            variants={fadeUp}
+            className="relative overflow-hidden rounded-2xl p-6 md:p-8 bg-gradient-to-br from-primary-container/40 to-secondary-container/30 border border-primary/20 shadow-lg"
+          >
+            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[80px] rounded-full translate-x-1/3 -translate-y-1/3" />
+            <div className="relative z-10">
+              <p className="text-primary font-headline font-bold text-xs uppercase tracking-widest mb-2">
+                🏆 ¡Programa completado!
+              </p>
+              <h3 className="text-on-surface font-headline font-extrabold text-2xl mb-1">
+                Terminaste las {completedWeeks} semanas
+              </h3>
+              <p className="text-on-surface-variant font-body text-sm mb-5 max-w-sm">
+                Completaste un ciclo completo. Es hora de un nuevo programa progresivo con mayor intensidad y volumen basado en tus cargas actuales.
+              </p>
+              <button
+                onClick={() => onNavigate('library')}
+                className="bg-primary text-on-primary font-headline font-bold px-6 py-3 rounded-full text-sm tracking-tight hover:scale-[1.03] active:scale-95 transition-all shadow-md flex items-center gap-2"
+              >
+                <RefreshCw size={15} />
+                Iniciar Nuevo Ciclo
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Hero card */}
       <motion.div variants={fadeUp} className="glass-panel rounded-xl p-8 md:p-12 relative overflow-hidden group shadow-xl shadow-on-surface/3">
         <div className="absolute top-0 right-0 w-80 h-80 bg-primary-container/20 blur-[100px] rounded-full translate-x-1/3 -translate-y-1/3 transition-transform duration-700 group-hover:scale-[1.4]" />
@@ -358,12 +464,12 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
             ? 'Aún no tienes sesiones. Comienza la primera.'
             : `Última sesión: ${sessions[0]?.name ?? '—'}`}
         </p>
-        {nextDayName && (
+        {nextDayName && !programComplete && (
           <p className="text-primary mb-8 relative z-10 font-headline font-bold text-sm tracking-tight">
             Siguiente: Día {nextDayNum} — {nextDayName}
           </p>
         )}
-        {!nextDayName && <div className="mb-8" />}
+        {(!nextDayName || programComplete) && <div className="mb-8" />}
         <button
           onClick={() => onNavigate('session')}
           className="relative z-10 bg-primary-container text-on-primary-container font-headline font-bold px-8 py-4 rounded-full text-lg tracking-tight hover:scale-[1.03] active:scale-95 transition-all shadow-lg shadow-primary-container/25 flex items-center gap-2 group/btn"
@@ -380,14 +486,14 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Ajuste Inteligente</h3>
         </div>
         <p className="text-on-surface-variant/70 text-sm font-body mb-4">
-          Describe cómo te sientes hoy y ajustaremos tu sesión automáticamente.
+          Dime cómo te sientes o qué ejercicio quieres cambiar y lo ajusto.
         </p>
 
         <div className="flex gap-2 mb-2">
           <textarea
             value={adjustInput}
             onChange={(e) => setAdjustInput(e.target.value)}
-            placeholder='Ej: "Dormí 4 horas, me siento pesado y me duele la rodilla"'
+            placeholder='Ej: "Cambiar press inclinado" o "Dormí poco y me duele el hombro"'
             className="flex-1 bg-surface-container-high/50 border border-outline-variant/20 rounded-xl px-4 py-3 text-on-surface font-body text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-on-surface-variant/40"
             rows={2}
             onKeyDown={(e) => {
@@ -409,7 +515,7 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
         {/* Quick suggestion chips */}
         <div className="flex flex-wrap gap-2 mb-4">
-          {['😴 Dormí poco', '🤕 Me duele algo', '⏱ Poco tiempo', '🔧 Falta equipo'].map((chip) => (
+          {['😴 Dormí poco', '🤕 Me duele algo', '⏱ Poco tiempo', '🔧 Falta equipo', '🔄 Cambiar ejercicio'].map((chip) => (
             <button
               key={chip}
               onClick={() => {
@@ -418,6 +524,7 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
                   '🤕 Me duele algo': 'Tengo dolor muscular, me siento adolorido',
                   '⏱ Poco tiempo': 'Solo tengo 30 minutos hoy',
                   '🔧 Falta equipo': 'No tengo barra disponible hoy',
+                  '🔄 Cambiar ejercicio': 'Cambiar ',
                 };
                 setAdjustInput(map[chip] ?? chip);
               }}
@@ -1055,6 +1162,9 @@ function LibraryView() {
   const [regenerating, setRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
   const [detailExercise, setDetailExercise] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingProgram, setDeletingProgram] = useState(false);
+  const [programDeleted, setProgramDeleted] = useState(false);
 
   const fetchExercises = async () => {
     if (!user) return;
@@ -1132,7 +1242,7 @@ function LibraryView() {
       // Determine where the user is in the program based on completed sessions
       const { data: oldProgram } = await supabase
         .from('programs')
-        .select('id, total_days')
+        .select('id, total_days, total_weeks')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -1143,8 +1253,21 @@ function LibraryView() {
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id);
 
+      // Count past programs to derive cycle number (1 = first program ever)
+      const { count: programCount } = await supabase
+        .from('programs')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
       const sessCount = totalSessions ?? 0;
       const hasHistory = sessCount > 0;
+
+      // Cycle = how many full 12-week programs have been completed + 1
+      // A program is "completed" if sessions >= total_days × total_weeks
+      const prevCompleted = oldProgram
+        ? sessCount >= (oldProgram.total_days * (oldProgram.total_weeks ?? 12)) ? 1 : 0
+        : 0;
+      const cycleNumber = Math.max(1, (programCount ?? 1) - 1 + prevCompleted);
 
       const bw = Number(profile.bodyweight) || 75;
       const ht = Number(profile.height) || 170;
@@ -1171,7 +1294,8 @@ function LibraryView() {
             profile.goal,
             bmi,
             profile.session_minutes ?? 60,
-            profile.gender ?? 'male'
+            profile.gender ?? 'male',
+            cycleNumber
           );
 
       // If user has session history, override generated weights with actual working
@@ -1228,6 +1352,37 @@ function LibraryView() {
     }
 
     setRegenerating(false);
+  };
+
+  const deleteProgram = async (keepWeights: boolean) => {
+    if (!user) return;
+    setDeletingProgram(true);
+    try {
+      const { data: prog } = await supabase
+        .from('programs')
+        .select('id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (prog) {
+        await supabase.from('program_days').delete().eq('program_id', prog.id);
+        await supabase.from('programs').delete().eq('id', prog.id);
+      }
+
+      if (!keepWeights) {
+        await supabase.from('working_weights').delete().eq('user_id', user.id);
+      }
+
+      localStorage.removeItem(sessionDraftKey(user.id));
+      setProgramDeleted(true);
+      setShowDeleteModal(false);
+      setTimeout(() => setProgramDeleted(false), 4000);
+    } catch (err) {
+      console.error('Error eliminando programa:', err);
+    }
+    setDeletingProgram(false);
   };
 
   const grouped = Object.entries(CATEGORY_LABELS).map(([cat, label]) => ({
@@ -1349,8 +1504,101 @@ function LibraryView() {
           <p className="text-on-surface-variant/40 text-xs font-body text-center mt-2">
             Regenera tu programa de 12 semanas con los ejercicios activos actuales.
           </p>
+
+          {/* Delete Program Button */}
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            disabled={deletingProgram}
+            className="w-full mt-3 font-headline font-bold py-3.5 rounded-full text-base tracking-tight flex items-center justify-center gap-2 transition-all border border-error/30 text-error hover:bg-error/8 active:scale-95 disabled:opacity-40"
+          >
+            <Trash2 size={16} />
+            Eliminar Programa Actual
+          </button>
+
+          {programDeleted && (
+            <motion.p
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-green-600 text-xs font-body text-center mt-2 flex items-center justify-center gap-1"
+            >
+              <Check size={12} /> Programa eliminado. Ve a Ajustes para generar uno nuevo.
+            </motion.p>
+          )}
         </motion.div>
       )}
+
+      {/* Delete Program Modal */}
+      <AnimatePresence>
+        {showDeleteModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowDeleteModal(false); }}
+          >
+            <motion.div
+              initial={{ y: 60, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 60, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+              className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-error-container/30 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={20} className="text-error" />
+                </div>
+                <h3 className="text-on-surface font-headline font-bold text-lg">Eliminar Programa</h3>
+              </div>
+              <p className="text-on-surface-variant font-body text-sm mb-5">
+                ¿Qué deseas hacer con tu historial de pesos registrados?
+              </p>
+
+              <div className="space-y-3 mb-5">
+                <button
+                  onClick={() => deleteProgram(true)}
+                  disabled={deletingProgram}
+                  className="w-full text-left p-4 rounded-xl border border-primary/20 bg-primary-container/10 hover:bg-primary-container/20 transition-colors group disabled:opacity-50"
+                >
+                  <p className="font-headline font-bold text-on-surface text-sm mb-0.5 group-hover:text-primary transition-colors">
+                    Conservar pesos históricos
+                  </p>
+                  <p className="text-on-surface-variant/70 text-xs font-body">
+                    El nuevo programa arrancará con tus cargas actuales. Recomendado si continúas entrenando.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => deleteProgram(false)}
+                  disabled={deletingProgram}
+                  className="w-full text-left p-4 rounded-xl border border-error/20 bg-error-container/10 hover:bg-error-container/20 transition-colors group disabled:opacity-50"
+                >
+                  <p className="font-headline font-bold text-error text-sm mb-0.5">
+                    Eliminar todo (incluyendo pesos)
+                  </p>
+                  <p className="text-on-surface-variant/70 text-xs font-body">
+                    Reinicio completo. El siguiente programa estimará pesos desde cero.
+                  </p>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="w-full py-2.5 rounded-full text-on-surface-variant font-body text-sm hover:bg-surface-container-high/50 transition-colors"
+              >
+                Cancelar
+              </button>
+
+              {deletingProgram && (
+                <div className="flex items-center justify-center gap-2 mt-3 text-on-surface-variant/60 text-xs">
+                  <Loader2 size={14} className="animate-spin" />
+                  Eliminando...
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Exercise Detail Modal */}
       {detailExercise && (
