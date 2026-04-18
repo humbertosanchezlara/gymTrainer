@@ -41,6 +41,7 @@ type Tab = typeof NAV[number]['id'];
 export default function MainShell() {
   const { signOut } = useAuth();
   const [tab, setTab] = useState<Tab>('dashboard');
+  const [travelDraft, setTravelDraft] = useState<SessionLogEntry[] | null>(null);
 
   return (
     <div className="min-h-screen bg-surface relative selection:bg-primary-container selection:text-on-primary-container">
@@ -96,9 +97,9 @@ export default function MainShell() {
         {/* Content */}
         <main className="flex-1 px-6 py-8 pb-28 lg:px-12 lg:py-12 overflow-y-auto">
           <AnimatePresence mode="wait">
-            {tab === 'dashboard' && <DashboardView key="dash" onNavigate={setTab} />}
+            {tab === 'dashboard' && <DashboardView key="dash" onNavigate={setTab} onStartTravel={(draft) => { setTravelDraft(draft); setTab('session'); }} />}
             {tab === 'program' && <ProgramView key="prog-view" />}
-            {tab === 'session' && <SessionView key="sess" onNavigate={setTab} />}
+            {tab === 'session' && <SessionView key="sess" onNavigate={setTab} travelDraft={travelDraft} onClearTravel={() => setTravelDraft(null)} />}
             {tab === 'library' && <LibraryView key="lib" />}
             {tab === 'progress' && <ProgressView key="prog" />}
           </AnimatePresence>
@@ -260,7 +261,7 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
   return adjustments;
 }
 
-function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
+function DashboardView({ onNavigate, onStartTravel }: { onNavigate: (t: Tab) => void, onStartTravel: (d: SessionLogEntry[]) => void }) {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [nextDayName, setNextDayName] = useState<string | null>(null);
@@ -277,23 +278,30 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     if (!user) return;
     Promise.all([
       supabase.from('sessions').select('*').eq('user_id', user.id).order('date', { ascending: false }).limit(5),
-      supabase.from('programs').select('id, total_days, total_weeks').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
-    ]).then(async ([sRes, pRes, countRes]) => {
+      supabase.from('programs').select('id, total_days, total_weeks, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    ]).then(async ([sRes, pRes]) => {
       if (sRes.data) setSessions(sRes.data);
 
       if (pRes.data) {
-        const totalSessions = countRes.count ?? 0;
+        // Count ONLY sessions for this program (after creation, and not travel sessions)
+        const { count: totalSessions } = await supabase
+          .from('sessions')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('created_at', pRes.data.created_at)
+          .not('block_num', 'is', null);
+
+        const sessCount = totalSessions ?? 0;
         const totalProgramSessions = pRes.data.total_days * (pRes.data.total_weeks ?? 12);
-        const weeksCompleted = Math.floor(totalSessions / pRes.data.total_days);
+        const weeksCompleted = Math.floor(sessCount / pRes.data.total_days);
         setCompletedWeeks(Math.min(weeksCompleted, pRes.data.total_weeks ?? 12));
 
-        if (totalSessions >= totalProgramSessions) {
+        if (sessCount >= totalProgramSessions) {
           setProgramComplete(true);
           return;
         }
 
-        const dayNum = (totalSessions % pRes.data.total_days) + 1;
+        const dayNum = (sessCount % pRes.data.total_days) + 1;
         setNextDayNum(dayNum);
         const { data: dayData } = await supabase
           .from('program_days')
@@ -422,6 +430,43 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     }
   };
 
+  const handleTravelModeClick = async () => {
+    if (!user) return;
+    setAdjusting(true); // use spinner visually
+    try {
+      const [{ data: profile }, { data: exercises }] = await Promise.all([
+        supabase.from('profiles').select('training_experience, session_minutes, goal').eq('id', user.id).single(),
+        supabase.from('exercises').select('*').eq('user_id', user.id).in('status', ['YES', 'SUB'])
+      ]);
+
+      const eProf = deriveEngineProfile({
+        experience: profile?.training_experience || 'intermediate',
+        scheduleDays: 3,
+        sessionMinutes: profile?.session_minutes || 45,
+        goal: profile?.goal || 'general'
+      });
+      
+      const travelProg = generateNoEquipmentProgram(eProf, exercises || []);
+      const day = travelProg.days[0]; // grab day 1 pattern
+
+      const travelDraft: SessionLogEntry[] = day.exercises.map(ex => ({
+        exercise_id: ex.exercise_id,
+        exercise_name: ex.exercise_name,
+        sets: ex.sets,
+        reps_per_set: ex.reps_max || ex.reps_min || 10,
+        weight: 0, // bodyweight/bands
+        rpe: ex.rpe || 8,
+        notes: ex.notes || 'Modo viaje'
+      }));
+
+      onStartTravel(travelDraft);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAdjusting(false);
+    }
+  };
+
   return (
     <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-8">
 
@@ -470,13 +515,23 @@ function DashboardView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           </p>
         )}
         {(!nextDayName || programComplete) && <div className="mb-8" />}
-        <button
-          onClick={() => onNavigate('session')}
-          className="relative z-10 bg-primary-container text-on-primary-container font-headline font-bold px-8 py-4 rounded-full text-lg tracking-tight hover:scale-[1.03] active:scale-95 transition-all shadow-lg shadow-primary-container/25 flex items-center gap-2 group/btn"
-        >
-          Comenzar Rutina
-          <Dumbbell size={18} className="group-hover/btn:rotate-12 transition-transform" />
-        </button>
+        <div className="flex flex-col sm:flex-row gap-4 relative z-10">
+          <button
+            onClick={() => onNavigate('session')}
+            className="flex-1 sm:flex-none justify-center bg-primary-container text-on-primary-container font-headline font-bold px-8 py-4 rounded-full text-lg tracking-tight hover:scale-[1.03] active:scale-95 transition-all shadow-lg shadow-primary-container/25 flex items-center gap-2 group/btn"
+          >
+            Comenzar Rutina
+            <Dumbbell size={18} className="group-hover/btn:rotate-12 transition-transform" />
+          </button>
+          
+          <button
+            onClick={handleTravelModeClick}
+            disabled={adjusting}
+            className="flex-1 sm:flex-none justify-center bg-surface-container-high/60 text-on-surface font-headline font-bold px-6 py-4 rounded-full text-sm tracking-tight hover:bg-surface-container-high hover:scale-[1.03] active:scale-95 transition-all flex items-center gap-2 border border-outline-variant/20 disabled:opacity-50"
+          >
+            {adjusting ? <Loader2 size={18} className="animate-spin" /> : <span>✈️ Modo Viaje</span>}
+          </button>
+        </div>
       </motion.div>
 
       {/* Smart Adjustment Chat */}
@@ -663,7 +718,15 @@ function sessionDraftKey(userId: string) {
   return `session_draft_${userId}`;
 }
 
-function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
+function SessionView({ 
+  onNavigate, 
+  travelDraft,
+  onClearTravel
+}: { 
+  onNavigate: (t: Tab) => void,
+  travelDraft: SessionLogEntry[] | null,
+  onClearTravel: () => void
+}) {
   const { user } = useAuth();
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [sessionName, setSessionName] = useState('');
@@ -679,14 +742,15 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const [detailExercise, setDetailExercise] = useState<string | null>(null);
   const [confirmDeleteIdx, setConfirmDeleteIdx] = useState<number | null>(null);
   const [progressionResults, setProgressionResults] = useState<ProgressionResult[]>([]);
+  const [deloadApplied, setDeloadApplied] = useState<{ days: number, percentage: number } | null>(null);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
   useEffect(() => {
-    if (!user || loadingProgram || !draftRestoredRef.current) return;
+    if (!user || loadingProgram || !draftRestoredRef.current || travelDraft) return;
     const draft: SessionDraft = { dayNum, weekNum, sessionName, logs };
     localStorage.setItem(sessionDraftKey(user.id), JSON.stringify(draft));
-  }, [logs, sessionName, user, dayNum, weekNum, loadingProgram]);
+  }, [logs, sessionName, user, dayNum, weekNum, loadingProgram, travelDraft]);
 
   useEffect(() => {
     if (!user) return;
@@ -702,7 +766,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
       const { data: program } = await supabase
         .from('programs')
-        .select('id, total_days, total_weeks')
+        .select('id, total_days, total_weeks, created_at')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -718,7 +782,27 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       const { count: totalSessions } = await supabase
         .from('sessions')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .gte('created_at', program.created_at)
+        .not('block_num', 'is', null);
+
+      const { data: lastGymSession } = await supabase
+        .from('sessions')
+        .select('date')
+        .eq('user_id', user.id)
+        .gte('created_at', program.created_at)
+        .not('block_num', 'is', null)
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let daysSinceLast = 0;
+      if (lastGymSession) {
+        const lastDate = new Date(lastGymSession.date);
+        const today = new Date();
+        const diffMs = today.getTime() - lastDate.getTime();
+        daysSinceLast = Math.floor(diffMs / (1000 * 3600 * 24));
+      }
 
       const sessCount = totalSessions ?? 0;
       const currentDayNum = (sessCount % program.total_days) + 1;
@@ -729,6 +813,20 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
       setWeekNum(currentWeek);
       setBlockNum(bNum);
       setBlockName(bName);
+
+      // Intercept for travel draft
+      if (travelDraft) {
+        setSessionName('✈️ Rutina de Viaje (Bandas/Corporal)');
+        setDayNum(0);
+        setWeekNum(0);
+        setBlockNum(0); // 0 translates to null on save
+        setBlockName('Modo Viaje (Pausado)');
+        setLogs(travelDraft);
+        setLoadingProgram(false);
+        setHasProgram(true);
+        draftRestoredRef.current = true;
+        return;
+      }
 
       // Check if there's a saved draft for this same day/week
       const savedDraft = localStorage.getItem(sessionDraftKey(user.id));
@@ -769,17 +867,31 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           }
         }
 
+        const applyPenalty = daysSinceLast >= 14;
+        const penaltyScale = daysSinceLast >= 21 ? 0.85 : 0.90;
+
+        if (applyPenalty) {
+          setDeloadApplied({ days: daysSinceLast, percentage: Math.round((1 - penaltyScale) * 100) });
+        }
+
         const dayExercises = (programDay.exercises || []) as any[];
         const preFilled: SessionLogEntry[] = dayExercises.map((ex: any) => {
-          const currentWeight = weightMap.get(ex.exercise_id) ?? ex.weight ?? 0;
+          let currentWeight = weightMap.get(ex.exercise_id) ?? ex.weight ?? 0;
+          let rpe = ex.rpe ?? 7;
+
+          if (applyPenalty && currentWeight > 0) {
+            currentWeight = Math.round((currentWeight * penaltyScale) / 2.5) * 2.5;
+            rpe = Math.max(5, rpe - 1);
+          }
+
           return {
             exercise_id: ex.exercise_id,
             exercise_name: ex.exercise_name || '—',
             sets: ex.sets,
             reps_per_set: ex.reps_max ?? ex.reps_min ?? 8,
             weight: currentWeight,
-            rpe: ex.rpe ?? 7,
-            notes: '',
+            rpe,
+            notes: applyPenalty && currentWeight > 0 ? 'Carga reducida (Readaptación)' : '',
             // Store program targets for progression calculation at save time
             target_reps_min: ex.reps_min,
             target_reps_max: ex.reps_max,
@@ -822,7 +934,12 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
     const { data: session, error: sErr } = await supabase
       .from('sessions')
-      .insert({ user_id: user.id, name: sessionName, week_num: weekNum, block_num: blockNum })
+      .insert({ 
+        user_id: user.id, 
+        name: sessionName, 
+        week_num: weekNum === 0 ? null : weekNum, 
+        block_num: blockNum === 0 ? null : blockNum 
+      })
       .select()
       .single();
 
@@ -865,6 +982,7 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     setProgressionResults(notable);
 
     localStorage.removeItem(sessionDraftKey(user.id));
+    onClearTravel();
     setSaving(false);
     setSaved(true);
 
@@ -965,6 +1083,20 @@ function SessionView({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           </div>
         )}
       </motion.div>
+
+      {deloadApplied && (
+        <motion.div variants={fadeUp} className="bg-primary-container/20 border-l-4 border-primary rounded-r-xl px-5 py-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-primary mt-0.5 shrink-0" size={18} />
+            <div>
+              <p className="text-on-surface font-headline font-bold text-sm">Modo de Readaptación Activado</p>
+              <p className="text-on-surface-variant text-xs font-body mt-1">
+                Han pasado {deloadApplied.days} días desde tu última sesión de gimnasio principal. Se han reducido automáticamente tus cargas un {deloadApplied.percentage}% y el RPE objetivo ha bajado respecto al predeterminado para facilitar tu regreso sin excesos.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* RPE Reference Banner */}
       <motion.div variants={fadeUp} className="bg-primary-container/15 border border-primary-container/30 rounded-xl px-4 py-3">
