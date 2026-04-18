@@ -1,14 +1,29 @@
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import { supabase } from './lib/supabase';
 import AuthScreen from './components/AuthScreen';
 import OnboardingWizard from './components/OnboardingWizard';
 import MainShell from './components/MainShell';
+import ResetPasswordScreen from './components/ResetPasswordScreen';
 
 function AppRouter() {
   const { user, loading } = useAuth();
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [checkingProfile, setCheckingProfile] = useState(true);
+  const [isRecovery, setIsRecovery] = useState(false);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true);
+      }
+      if (event === 'USER_UPDATED') {
+        setIsRecovery(false);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -36,6 +51,10 @@ function AppRouter() {
     );
   }
 
+  if (isRecovery) {
+    return <ResetPasswordScreen onSuccess={() => setIsRecovery(false)} />;
+  }
+
   if (!user) return <AuthScreen />;
 
   if (!hasProfile) {
@@ -52,7 +71,9 @@ function AppRouter() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppRouter />
+      <ToastProvider>
+        <AppRouter />
+      </ToastProvider>
     </AuthProvider>
   );
 }

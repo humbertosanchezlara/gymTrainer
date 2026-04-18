@@ -48,18 +48,19 @@ function ChipGroup({ options, value, onChange }: { options: { value: string; lab
 
 // ─── Steps indicator ─────────────────────────────────────
 function StepsIndicator({ current, total }: { current: number; total: number }) {
+  const percentage = ((current + 1) / total) * 100;
   return (
-    <div className="flex gap-2 items-center">
-      {Array.from({ length: total }).map((_, i) => (
-        <div
-          key={i}
-          className={`h-1.5 rounded-full transition-all duration-500 ${
-            i <= current
-              ? 'bg-primary-container w-8'
-              : 'bg-outline-variant/25 w-4'
-          }`}
+    <div className="space-y-2">
+      <p className="text-on-surface-variant text-xs font-body font-medium">
+        Paso {current + 1} de {total}
+      </p>
+      <div className="relative h-1.5 bg-outline-variant/20 rounded-full overflow-hidden w-48">
+        <motion.div
+          className="absolute inset-y-0 left-0 bg-primary-container rounded-full"
+          animate={{ width: `${percentage}%` }}
+          transition={{ type: 'spring', stiffness: 260, damping: 26 }}
         />
-      ))}
+      </div>
     </div>
   );
 }

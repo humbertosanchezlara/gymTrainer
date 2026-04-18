@@ -1,6 +1,9 @@
 // Static exercise catalog: Spanish instructions + image URLs from free-exercise-db
 // Images sourced from https://github.com/yuhonas/free-exercise-db
 
+import { BAND_EXERCISES } from './bandExercises';
+import { EXERCISE_DB } from '../workout-engine/lib/exerciseDb';
+
 const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises';
 
 export interface ExerciseCatalogEntry {
@@ -425,35 +428,24 @@ export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
     images: [],
   },
 
-  // ─── VIAJE & BANDAS ────────────────────────────────────
-  'Sentadilla con Banda': { instructions: 'Pisar la banda con ambos pies a la anchura de hombros, pasarla por los hombros al frente y ejecutar la sentadilla.', images: [] },
-  'Desplante Estático con Banda': { instructions: 'Pisar la banda con el pie frontal y anclarla en las manos. Bajar de forma controlada y subir empujando el suelo.', images: [] },
-  'Paso Lateral con Banda': { instructions: 'Colocar una banda corta encima o debajo de las rodillas y realizar pasos laterales. Mantener la tensión alta.', images: [] },
-  'Peso Muerto Rumano con Banda': { instructions: 'Pisar la banda y sujetar ambos extremos. Mantener la espalda recta y empujar cadera hacia atrás estirando isquiotibiales.', images: [] },
-  'Puente de Glúteo': { instructions: 'Acostado boca arriba, elevar la cadera apretando los glúteos arriba. Recomendable pausar 1-2 segundos en la cima.', images: [] },
-  'Elevación de Talones con Banda': { instructions: 'Pisar la banda y sostener los extremos con las manos a nivel hombro. Elevar sobre las puntas de los pies.', images: [] },
-  'Crunch Inverso con Banda': { instructions: 'Acostado, anclar la banda atrás de la cabeza sujetándola/pies dentro. Flexionar rodillas hacia el pecho levantando cadera levemente.', images: [] },
-  'Plancha Lateral': { instructions: 'Sostenerse sobre el antebrazo y borde externo del pie. Abdomen contraído y cadera alineada. Manda la línea recta todo lo posible.', images: [] },
-  'V-Ups Alternos': { instructions: 'Acostado, levantar el tronco y una pierna al mismo tiempo para tocar el pie, alternar pierna.', images: [] },
-  'Bicicleta (Bicycle Crunches)': { instructions: 'Llevar codo derecho a rodilla izquierda y alternar fluidamente, controlando la respiración.', images: [] },
-  'Leñador Inverso con Banda (Reverse Wood Chop)': { instructions: 'Anclar banda abajo, jalar diagonalmente hacia arriba torciendo el tronco superior.', images: [] },
-  'Lagartijas / Flexiones (Push-Ups)': { instructions: 'Manos a lo ancho de los hombros, bajar contrayendo pecho hasta rozar el suelo, empujar de regreso bloqueando el core.', images: [] },
-  'Pike Push Ups (Lagartijas de Hombro)': { instructions: 'Cuerpo en V invertida, enfocar peso en manos. Bajar corona de la cabeza en un triángulo por delante de tus manos.', images: [] },
-  'Fondos en Silla / Banco (Dips)': { instructions: 'Manos al borde por detrás, rodillas flexionadas o rectas. Bajar controlado flexionando codos, empujar triceps.', images: [] },
-  'Press de Hombro con Banda': { instructions: 'Pisar banda en el centro, llevar extremos a altura de hombros y empujar directamente sobre la cabeza.', images: [] },
-  'Cristos / Fly de Pecho con Banda': { instructions: 'Pasar banda por detrás de la espalda, sujetar un lado con cada mano, cerrar ambas manos al frente juntando pecho.', images: [] },
-  'Extensión de Tríceps sobre Cabeza con Banda': { instructions: 'Pisar banda, anclarla por detrás y arriba de tu cabeza y extender el tríceps bloqueando el codo arriba.', images: [] },
-  'Patada de Tríceps con Banda (Kickback)': { instructions: 'Inclinado, retener el codo pegado a las costillas y empujar el antebrazo y banda hacia atrás por completo.', images: [] },
-  'Remo Inclinado con Banda (Bent Over Row)': { instructions: 'Pisar banda, inclinar torso a 45 grados, jalar hacia las costillas apretando la espalda.', images: [] },
-  'Remo a 1 Mano con Banda (Split Row)': { instructions: 'En posición de desplante frontal corto, sujetar banda anclada bajo pie delantero e impulsar jalones a una mano.', images: [] },
-  'Pullover Acostado con Banda': { instructions: 'Anclar banda a nivel suelo o puerta cerrada baja, acostarse, y con brazos casi rectos jalar hasta la altura de rodillas/cadera.', images: [] },
-  'Face Pull con Banda': { instructions: 'Anclar banda frente al rostro, jalar manos a nivel frente/orejas forzando la rotación externa y contracción escapular media.', images: [] },
-  'Curl de Bíceps con Banda': { instructions: 'Pisar banda con 1 o 2 pies y hacer curl de brazos sin columpiar el cuerpo; resistir bien en la bajada.', images: [] },
-  'Band Pull Apart': { instructions: 'Brazos al frente sosteniendo la banda, abrirlos en T apuntando a los omóplatos, ideal para calentamiento o postura.', images: [] },
+  // ─── VIAJE & BANDAS (generado desde bandExercises.ts) ──────
+  ...Object.fromEntries(
+    BAND_EXERCISES.map(e => [e.name, { instructions: e.instructions, images: e.images }])
+  ),
 };
 
 // Reverse lookup: Spanish name → English name (for DB exercises stored in Spanish)
+// Auto-generado desde EXERCISE_DB (fuente de verdad para ejercicios de banda/peso corporal)
+// más entradas estáticas para ejercicios de gimnasio que no están en EXERCISE_DB.
 export const ES_TO_EN: Record<string, string> = {
+  // ─── Generado desde EXERCISE_DB ─────────────────────────────
+  ...Object.fromEntries(
+    Object.values(EXERCISE_DB)
+      .filter(e => e.nameEs && e.name && e.nameEs !== e.name)
+      .map(e => [e.nameEs, e.name])
+  ),
+
+  // ─── Ejercicios de gimnasio (no están en EXERCISE_DB) ───────
   'Barra Back Squat': 'Barbell Back Squat',
   'Barra Front Squat': 'Barbell Front Squat',
   'Sentadilla con Barra de Seguridad': 'Safety Bar Squat',
