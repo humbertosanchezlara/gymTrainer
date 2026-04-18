@@ -5,6 +5,11 @@ import { supabase } from '../lib/supabase';
 import { DEFAULT_EXERCISES, type ExerciseStatus } from '../types';
 import { estimateKeyLifts } from '../engine/weightEstimator';
 import { generateProgram } from '../engine/programGenerator';
+import {
+  NO_EQUIPMENT_DEFAULT_EXERCISES,
+  deriveEngineProfile,
+  generateNoEquipmentProgram,
+} from '../engine/noEquipmentAdapter';
 import { ArrowRight, ArrowLeft, User, Target, Calendar, Dumbbell, Loader2, Check, Info, X } from 'lucide-react';
 
 // ─── Step animation variants ─────────────────────────────
@@ -92,7 +97,8 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const [liftsEstimated, setLiftsEstimated] = useState(false);
   const [infoLift, setInfoLift] = useState<string | null>(null);
 
-  const TOTAL_STEPS = 4;
+  const isNoEquipment = equipment === 'no_equipment';
+  const TOTAL_STEPS = isNoEquipment ? 3 : 4;
 
   const next = () => {
     if (step === 2 && !liftsEstimated) {
@@ -137,7 +143,10 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
         limitations: limitations || null,
       });
 
-      const exerciseRows = DEFAULT_EXERCISES.map((e) => ({
+      const seedExercises = isNoEquipment
+        ? NO_EQUIPMENT_DEFAULT_EXERCISES
+        : DEFAULT_EXERCISES;
+      const exerciseRows = seedExercises.map((e) => ({
         user_id: user.id,
         name: e.name,
         category: e.category,
@@ -155,23 +164,48 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
         throw new Error('Failed to seed exercises');
       }
 
-      const bmi = bodyweight / ((height / 100) ** 2);
-      const program = generateProgram(exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes, gender);
+      let programName: string;
+      let splitType: string;
+      let totalDays: number;
+      let days: { day_number: number; day_name: string; exercises: unknown[] }[];
+
+      if (isNoEquipment) {
+        const engineProfile = deriveEngineProfile({
+          experience,
+          scheduleDays,
+          sessionMinutes,
+          goal,
+        });
+        const program = generateNoEquipmentProgram(engineProfile, exercises, 1);
+        programName = program.name;
+        splitType = program.split_type;
+        totalDays = program.total_days;
+        days = program.days;
+      } else {
+        const bmi = bodyweight / ((height / 100) ** 2);
+        const program = generateProgram(
+          exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes, gender
+        );
+        programName = program.name;
+        splitType = program.split_type;
+        totalDays = program.total_days;
+        days = program.days;
+      }
 
       const { data: savedProgram, error: pErr } = await supabase
         .from('programs')
         .insert({
           user_id: user.id,
-          name: program.name,
-          split_type: program.split_type,
-          total_days: program.total_days,
+          name: programName,
+          split_type: splitType,
+          total_days: totalDays,
         })
         .select()
         .single();
 
       if (pErr || !savedProgram) throw pErr;
 
-      const dayRows = program.days.map((d) => ({
+      const dayRows = days.map((d) => ({
         program_id: savedProgram.id,
         day_number: d.day_number,
         day_name: d.day_name,
@@ -179,20 +213,22 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
       }));
       await supabase.from('program_days').insert(dayRows);
 
-      const mainLifts = [
-        { name: 'Barra Back Squat', weight: keyLifts.squat },
-        { name: 'Barra Press de Banca', weight: keyLifts.bench },
-        { name: 'Peso Muerto Convencional', weight: keyLifts.deadlift },
-        { name: 'Barra Press Militar', weight: keyLifts.ohp },
-      ];
+      if (!isNoEquipment) {
+        const mainLifts = [
+          { name: 'Barra Back Squat', weight: keyLifts.squat },
+          { name: 'Barra Press de Banca', weight: keyLifts.bench },
+          { name: 'Peso Muerto Convencional', weight: keyLifts.deadlift },
+          { name: 'Barra Press Militar', weight: keyLifts.ohp },
+        ];
 
-      for (const lift of mainLifts) {
-        const ex = exercises.find((e) => e.name === lift.name);
-        if (ex) {
-          await supabase.from('working_weights').upsert(
-            { user_id: user.id, exercise_id: ex.id, weight: lift.weight, updated_at: new Date().toISOString() },
-            { onConflict: 'user_id,exercise_id' }
-          );
+        for (const lift of mainLifts) {
+          const ex = exercises.find((e) => e.name === lift.name);
+          if (ex) {
+            await supabase.from('working_weights').upsert(
+              { user_id: user.id, exercise_id: ex.id, weight: lift.weight, updated_at: new Date().toISOString() },
+              { onConflict: 'user_id,exercise_id' }
+            );
+          }
         }
       }
 
@@ -356,9 +392,13 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                       { value: 'commercial_gym', label: 'Gimnasio comercial' },
                       { value: 'home_gym', label: 'Gimnasio en casa' },
                       { value: 'dumbbells_only', label: 'Solo mancuernas' },
+                      { value: 'no_equipment', label: 'Sin equipo (bandas + peso corporal)' },
                     ]}
                     value={equipment}
-                    onChange={setEquipment}
+                    onChange={(v) => {
+                      setEquipment(v);
+                      if (v === 'no_equipment' && scheduleDays > 5) setScheduleDays(5);
+                    }}
                   />
                 </div>
               </motion.div>
@@ -386,13 +426,13 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                   <input
                     type="range"
                     min={2}
-                    max={6}
+                    max={isNoEquipment ? 5 : 6}
                     value={scheduleDays}
                     onChange={(e) => setScheduleDays(+e.target.value)}
                     className="w-full accent-primary h-1.5 bg-outline-variant/20 rounded-full appearance-none cursor-pointer"
                   />
                   <div className="flex justify-between text-on-surface-variant/40 text-xs mt-2 font-body">
-                    <span>2</span><span>3</span><span>4</span><span>5</span><span>6</span>
+                    <span>2</span><span>3</span><span>4</span><span>5</span>{!isNoEquipment && <span>6</span>}
                   </div>
                 </div>
 

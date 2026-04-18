@@ -154,6 +154,70 @@ function getBmiAdjustments(bmi: number, experience: string): BmiAdjustments {
   return { rpeDelta: 0, repsDelta: 0, weightScale: 1.0 };
 }
 
+// ─── Volume Tolerance ────────────────────────────────────
+/**
+ * Derive how much volume the user can handle per session,
+ * based on session length, goal and experience level.
+ *
+ * Maps directly to the four tiers used by the band/bodyweight engine,
+ * keeping both pipelines consistent.
+ */
+export type VolumeTolerance = 'low' | 'medium' | 'high' | 'very_high';
+
+export function deriveVolumeTolerance(
+  sessionMinutes: number,
+  goal: string,
+  experience: string
+): VolumeTolerance {
+  if (sessionMinutes <= 35) return 'low';
+  if (sessionMinutes <= 50) return 'medium';
+  if (experience === 'advanced' || goal === 'hypertrophy') return 'very_high';
+  return 'high';
+}
+
+/** Scale compound sets based on tolerance. Accessory gets 1 less than compound. */
+function scaleSets(baseSets: number, tolerance: VolumeTolerance): number {
+  switch (tolerance) {
+    case 'low':       return Math.max(2, baseSets - 1);
+    case 'medium':    return baseSets;
+    case 'high':      return baseSets + 1;
+    case 'very_high': return baseSets + 1;
+  }
+}
+
+/** Rest in seconds by role and tolerance (mirrors band-engine VOLUME_TABLE). */
+function restSeconds(role: 'primary' | 'secondary' | 'accessory', tolerance: VolumeTolerance): number {
+  const base: Record<VolumeTolerance, number> = {
+    low: 120, medium: 90, high: 75, very_high: 60,
+  };
+  const r = base[tolerance];
+  if (role === 'primary')   return r + 30;
+  if (role === 'accessory') return Math.max(r - 15, 30);
+  return r;
+}
+
+// ─── Isometric exercises in the classic library ──────────
+// These use time-based schemes (seconds) instead of reps.
+const ISOMETRIC_EXERCISES: Record<string, Record<string, number>> = {
+  // name → { beginner, intermediate, advanced } seconds
+  'Plancha': { beginner: 20, intermediate: 30, advanced: 45 },
+};
+
+// ─── Unilateral exercises in the classic library ─────────
+// Flag these so ProgramView can display "c/lado".
+const UNILATERAL_EXERCISES = new Set([
+  'Sentadilla Búlgara',
+  'Zancadas',
+  'Step Ups',
+  'Mancuerna Remo',
+  'Remo Meadows',
+  'Curl Inclinado Mancuerna',
+  'Mancuerna Curl',
+  'Mancuerna Press Militar',
+  'Press Arnold',
+  'Curl Martillo',
+]);
+
 // ─── Session Duration → Max Exercises ───────────────────
 /**
  * Estimate how many exercises fit into a session based on available minutes.
@@ -196,6 +260,7 @@ export function generateProgram(
   const block = BLOCKS[0]; // Generate Day 1 details for Volume block (Week 1)
   const bmiAdj = getBmiAdjustments(bmi, experience);
   const maxExercises = maxExercisesForDuration(sessionMinutes);
+  const volumeTolerance = deriveVolumeTolerance(sessionMinutes, goal, experience);
 
   // Build weight lookup from key lifts overrides
   const weightOverrides: Record<string, number> = {};
@@ -229,11 +294,13 @@ export function generateProgram(
 
       usedIds.add(exercise.id);
 
-      const setsForRole = slot.role === 'primary'
+      // ── Improvement 1: volume-tolerance sets scaling ──
+      const baseSetsForRole = slot.role === 'primary'
         ? block.setsCompound
         : slot.role === 'secondary'
         ? block.setsCompound - 1
         : block.setsAccessory;
+      const setsForRole = scaleSets(baseSetsForRole, volumeTolerance);
 
       // Get weight: override > estimate, then apply BMI scale
       const baseWeight = weightOverrides[exercise.name]
@@ -255,18 +322,40 @@ export function generateProgram(
       const baseRpe = slot.role === 'primary' ? block.rpeMax : block.rpeMin;
       const rpe = Math.max(5, Math.min(10, baseRpe + bmiAdj.rpeDelta));
 
+      // ── Improvement 3: heterogeneous schemes ──────────
+      const isometricConfig = ISOMETRIC_EXERCISES[exercise.name];
+      const isIsometric = isometricConfig !== undefined;
+      const isUnilateral = UNILATERAL_EXERCISES.has(exercise.name);
+
+      const isoSeconds = isIsometric
+        ? (isometricConfig[experience] ?? isometricConfig['intermediate'])
+        : 0;
+
+      // reps_min/max: for isometric these store the target seconds
+      const finalRepsMin = isIsometric ? isoSeconds : repsMin;
+      const finalRepsMax = isIsometric ? isoSeconds : repsMax;
+
+      // ── Rest note (derived from volume tolerance + role) ──
+      const rest = restSeconds(slot.role, volumeTolerance);
+
+      // ── Build notes string ────────────────────────────
+      const schemePrefix = isIsometric  ? `⏱ ${isoSeconds}s — `
+                         : isUnilateral ? 'c/lado — '
+                         : '';
+      const notes = `${schemePrefix}Peso de calibración — ajusta después de la sesión 1 · ${rest}s descanso`;
+
       generatedExercises.push({
         exercise_id: exercise.id,
         exercise_name: exercise.name,
         category: exercise.category,
         role: slot.role,
         sets: setsForRole,
-        reps_min: repsMin,
-        reps_max: repsMax,
+        reps_min: finalRepsMin,
+        reps_max: finalRepsMax,
         rpe,
-        weight: adjustedWeight,
-        is_calibration: true,
-        notes: 'Peso de calibración — ajusta después de la sesión 1',
+        weight: isIsometric ? 0 : adjustedWeight,
+        is_calibration: !isIsometric,
+        notes,
       });
     }
 
