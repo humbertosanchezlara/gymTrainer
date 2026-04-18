@@ -1,8 +1,11 @@
+-- IMPORTANTE: Este archivo es generado desde src/data/bandExercises.ts
+-- No editar manualmente. Las instrucciones son la fuente canónica.
+
 -- =============================================
 -- Migración: Ejercicios con Banda y Peso Corporal
 -- =============================================
 -- Ejecuta este script en el SQL Editor de tu Dashboard en Supabase.
--- Insertará de manera automática este nuevo catálogo de ejercicios 
+-- Insertará de manera automática este nuevo catálogo de ejercicios
 -- para todos los perfiles de tu gimnasio.
 
 INSERT INTO exercises (user_id, name, category, status, notes)

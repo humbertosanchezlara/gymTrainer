@@ -5,6 +5,7 @@ import { EXERCISE_DB } from '../workout-engine/lib/exerciseDb';
 import { buildWeeklyPlan } from '../workout-engine/lib/routineEngine';
 import type {
   Exercise as EngineExercise,
+  MuscleGroup,
   UserProfile,
   WeeklyPlan,
   WorkoutDay,
@@ -17,7 +18,7 @@ import type { Exercise, MovementCategory, ProgramDayExercise } from '../types';
 
 export function mapEngineCategory(ex: EngineExercise): MovementCategory {
   const prim = ex.primaryMuscles;
-  const has = (m: string) => prim.includes(m as never);
+  const has = (m: MuscleGroup) => prim.includes(m);
 
   if (ex.category === 'legs') {
     if (has('calves')) return 'CALVES';
@@ -118,7 +119,10 @@ function slotToProgramExercise(
     .join(' · ');
 
   return {
-    exercise_id: dbEx?.id || `MISSING:${engineEx.nameEs}`,
+    exercise_id: dbEx?.id ?? (() => {
+      console.warn(`[noEquipmentAdapter] Ejercicio no encontrado en BD: "${engineEx.nameEs}". Asegúrate de ejecutar migration_bands.sql`);
+      return `MISSING:${engineEx.nameEs}`;
+    })(),
     exercise_name: dbEx?.name || engineEx.nameEs,
     category: dbEx?.category || mapEngineCategory(engineEx),
     role: inferRole(sectionLabel, indexInSection),
