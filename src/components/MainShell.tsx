@@ -274,6 +274,9 @@ function DashboardView({ onNavigate, onStartTravel }: { onNavigate: (t: Tab) => 
   const [adjusting, setAdjusting] = useState(false);
   const [adjustResult, setAdjustResult] = useState<SessionAdjustment[] | null>(null);
 
+  const [showTravelSetup, setShowTravelSetup] = useState(false);
+  const [travelDays, setTravelDays] = useState(3);
+
   useEffect(() => {
     if (!user) return;
     Promise.all([
@@ -441,7 +444,7 @@ function DashboardView({ onNavigate, onStartTravel }: { onNavigate: (t: Tab) => 
 
       const eProf = deriveEngineProfile({
         experience: profile?.training_experience || 'intermediate',
-        scheduleDays: 3,
+        scheduleDays: travelDays,
         sessionMinutes: profile?.session_minutes || 45,
         goal: profile?.goal || 'general'
       });
@@ -460,6 +463,7 @@ function DashboardView({ onNavigate, onStartTravel }: { onNavigate: (t: Tab) => 
       }));
 
       onStartTravel(travelDraft);
+      setShowTravelSetup(false);
     } catch (err) {
       console.error(err);
     } finally {
@@ -524,13 +528,38 @@ function DashboardView({ onNavigate, onStartTravel }: { onNavigate: (t: Tab) => 
             <Dumbbell size={18} className="group-hover/btn:rotate-12 transition-transform" />
           </button>
           
-          <button
-            onClick={handleTravelModeClick}
-            disabled={adjusting}
-            className="flex-1 sm:flex-none justify-center bg-surface-container-high/60 text-on-surface font-headline font-bold px-6 py-4 rounded-full text-sm tracking-tight hover:bg-surface-container-high hover:scale-[1.03] active:scale-95 transition-all flex items-center gap-2 border border-outline-variant/20 disabled:opacity-50"
-          >
-            {adjusting ? <Loader2 size={18} className="animate-spin" /> : <span>✈️ Modo Viaje</span>}
-          </button>
+          {!showTravelSetup ? (
+            <button
+              onClick={() => setShowTravelSetup(true)}
+              disabled={adjusting}
+              className="flex-1 sm:flex-none justify-center bg-surface-container-high/60 text-on-surface font-headline font-bold px-6 py-4 rounded-full text-sm tracking-tight hover:bg-surface-container-high hover:scale-[1.03] active:scale-95 transition-all flex items-center gap-2 border border-outline-variant/20 disabled:opacity-50"
+            >
+              <span>✈️ Modo Viaje</span>
+            </button>
+          ) : (
+            <div className="flex-1 sm:flex-none flex items-center gap-3 bg-surface-container-high/60 rounded-full px-6 py-2 border border-outline-variant/20">
+               <span className="text-sm font-headline font-bold text-on-surface">Días/sem:</span>
+               <input 
+                 type="number" min="1" max="6" 
+                 value={travelDays} 
+                 onChange={(e) => setTravelDays(Number(e.target.value))} 
+                 className="w-12 bg-transparent text-center border-b border-primary text-on-surface font-headline font-bold focus:outline-none" 
+               />
+               <button 
+                 onClick={handleTravelModeClick} 
+                 disabled={adjusting}
+                 className="bg-primary text-on-primary px-4 py-2 rounded-full text-xs font-bold transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 flex items-center gap-1"
+               >
+                 {adjusting ? <Loader2 size={14} className="animate-spin" /> : 'Generar'}
+               </button>
+               <button 
+                 onClick={() => setShowTravelSetup(false)} 
+                 className="text-on-surface-variant hover:text-error transition-colors p-1"
+               >
+                 <X size={18}/>
+               </button>
+            </div>
+          )}
         </div>
       </motion.div>
 
@@ -1005,9 +1034,19 @@ function SessionView({
   return (
     <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6 max-w-2xl">
       <motion.div variants={fadeUp}>
-        <h2 className="text-4xl font-headline font-extrabold tracking-tight mb-1 text-on-surface">
-          {hasProgram ? sessionName || 'Registrar Sesión' : 'Registrar Sesión'}
-        </h2>
+        <div className="flex items-start justify-between gap-4 mb-1">
+          <h2 className="text-4xl font-headline font-extrabold tracking-tight text-on-surface">
+            {hasProgram ? sessionName || 'Registrar Sesión' : 'Registrar Sesión'}
+          </h2>
+          {travelDraft && (
+            <button 
+              onClick={() => { onClearTravel(); onNavigate('dashboard'); }} 
+              className="mt-2 text-xs text-error font-bold flex items-center gap-1 hover:opacity-80 transition-opacity bg-error/10 px-3 py-1.5 rounded-full"
+            >
+              <X size={14} /> Salir del viaje
+            </button>
+          )}
+        </div>
         <p className="text-on-surface-variant font-body text-sm">
           {hasProgram ? (
             <>
