@@ -452,8 +452,31 @@ function DashboardView({ onNavigate, onStartTravel }: { onNavigate: (t: Tab) => 
       const travelProg = generateNoEquipmentProgram(eProf, exercises || []);
       const day = travelProg.days[0]; // grab day 1 pattern
 
+      // --- AUTO-INSERT MISSING EXERCISES ---
+      const missingExercises = day.exercises.filter(ex => ex.exercise_id.startsWith('MISSING:'));
+      if (missingExercises.length > 0) {
+        const namesToInsert = Array.from(new Set(missingExercises.map(ex => ex.exercise_name)));
+        const inserts = namesToInsert.map(name => {
+          const cat = missingExercises.find(e => e.exercise_name === name)?.category || 'CORE';
+          return { user_id: user.id, name, category: cat, status: 'YES' };
+        });
+        
+        const { data: inserted } = await supabase.from('exercises').insert(inserts).select();
+        
+        if (inserted) {
+          missingExercises.forEach(missing => {
+            const match = inserted.find(i => i.name === missing.exercise_name);
+            if (match) {
+              missing.exercise_id = match.id;
+            } else {
+              missing.exercise_id = '';
+            }
+          });
+        }
+      }
+
       const travelDraft: SessionLogEntry[] = day.exercises.map(ex => ({
-        exercise_id: ex.exercise_id,
+        exercise_id: ex.exercise_id.startsWith('MISSING:') ? '' : ex.exercise_id,
         exercise_name: ex.exercise_name,
         sets: ex.sets,
         reps_per_set: ex.reps_max || ex.reps_min || 10,

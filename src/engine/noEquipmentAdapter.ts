@@ -105,10 +105,9 @@ function slotToProgramExercise(
   sectionLabel: string,
   indexInSection: number,
   exerciseByName: Map<string, Exercise>
-): ProgramDayExercise | null {
+): ProgramDayExercise {
   const engineEx = slot.exercise;
   const dbEx = exerciseByName.get(engineEx.nameEs);
-  if (!dbEx) return null;
 
   const { sets, reps_min, reps_max, notesPrefix } = schemeToProgramFields(slot.scheme);
 
@@ -119,9 +118,9 @@ function slotToProgramExercise(
     .join(' · ');
 
   return {
-    exercise_id: dbEx.id,
-    exercise_name: dbEx.name,
-    category: dbEx.category,
+    exercise_id: dbEx?.id || `MISSING:${engineEx.nameEs}`,
+    exercise_name: dbEx?.name || engineEx.nameEs,
+    category: dbEx?.category || mapEngineCategory(engineEx),
     role: inferRole(sectionLabel, indexInSection),
     sets,
     reps_min,
