@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import type { Exercise, Session, SessionLog, WorkingWeight } from '../types';
 import { CATEGORY_LABELS, DEFAULT_EXERCISES, type MovementCategory, type ExerciseStatus } from '../types';
 import { generateProgram } from '../engine/programGenerator';
+import { deriveEngineProfile, generateNoEquipmentProgram } from '../engine/noEquipmentAdapter';
 import ProgramView from './ProgramView';
 import {
   Activity, Dumbbell, BookOpen, LineChart, ClipboardList,
@@ -1093,7 +1094,7 @@ function LibraryView() {
       // Fetch profile for generation params
       const { data: profile } = await supabase
         .from('profiles')
-        .select('bodyweight, height, training_experience, goal, schedule_days, session_minutes, gender')
+        .select('bodyweight, height, training_experience, goal, schedule_days, session_minutes, gender, equipment_access')
         .eq('id', user.id)
         .single();
 
@@ -1149,21 +1150,33 @@ function LibraryView() {
       const ht = Number(profile.height) || 170;
       const bmi = bw / ((ht / 100) ** 2);
 
-      const program = generateProgram(
-        yesExercises,
-        profile.schedule_days,
-        bw,
-        profile.training_experience,
-        keyLifts.squat > 0 ? keyLifts : undefined,
-        profile.goal,
-        bmi,
-        profile.session_minutes ?? 60,
-        profile.gender ?? 'male'
-      );
+      const isNoEq = profile.equipment_access === 'no_equipment';
+      const program = isNoEq
+        ? generateNoEquipmentProgram(
+            deriveEngineProfile({
+              experience: profile.training_experience,
+              scheduleDays: profile.schedule_days,
+              sessionMinutes: profile.session_minutes ?? 60,
+              goal: profile.goal,
+            }),
+            yesExercises,
+            1
+          )
+        : generateProgram(
+            yesExercises,
+            profile.schedule_days,
+            bw,
+            profile.training_experience,
+            keyLifts.squat > 0 ? keyLifts : undefined,
+            profile.goal,
+            bmi,
+            profile.session_minutes ?? 60,
+            profile.gender ?? 'male'
+          );
 
       // If user has session history, override generated weights with actual working
       // weights and remove calibration flags — the user has already calibrated
-      if (hasHistory) {
+      if (hasHistory && !isNoEq) {
         for (const day of program.days) {
           for (const ex of day.exercises) {
             const actualWeight = workingWeightMap.get(ex.exercise_id);

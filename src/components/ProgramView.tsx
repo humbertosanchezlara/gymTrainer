@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import type { Program, ProgramDay, ProgramDayExercise } from '../types';
 import { BLOCKS } from '../engine/programGenerator';
-import { ChevronRight, Zap, Flame, Trophy, Battery } from 'lucide-react';
+import { getGymProgressionNote } from '../engine/gymProgressionNotes';
+import { ChevronRight, Zap, Flame, Trophy, Battery, TrendingUp } from 'lucide-react';
 
 const stagger = {
   hidden: { opacity: 0 },
@@ -47,9 +48,23 @@ export default function ProgramView() {
   const [days, setDays] = useState<ProgramDay[]>([]);
   const [expandedDay, setExpandedDay] = useState<number | null>(1);
   const [loading, setLoading] = useState(true);
+  const [currentWeek, setCurrentWeek] = useState(1);
 
   useEffect(() => {
     if (!user) return;
+
+    // Fetch current week from sessions (max week_num completed)
+    supabase
+      .from('sessions')
+      .select('week_num')
+      .eq('user_id', user.id)
+      .order('week_num', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data: sessionData }) => {
+        if (sessionData?.week_num) setCurrentWeek(sessionData.week_num);
+      });
+
     supabase
       .from('programs')
       .select('*')
@@ -168,6 +183,19 @@ export default function ProgramView() {
                     className="overflow-hidden"
                   >
                     <div className="px-5 pb-5">
+                      {/* Progression note for current week */}
+                      <div className="flex items-start gap-2 mb-4 bg-primary-container/15 border border-primary-container/30 rounded-xl px-4 py-3">
+                        <TrendingUp size={14} className="text-primary mt-0.5 shrink-0" />
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-primary block mb-0.5">
+                            Semana {currentWeek} — Foco de progresión
+                          </span>
+                          <p className="text-on-surface-variant text-xs font-body leading-relaxed">
+                            {getGymProgressionNote(day.day_name, currentWeek)}
+                          </p>
+                        </div>
+                      </div>
+
                       {/* Exercise table */}
                       <div className="bg-surface-container-high/30 rounded-xl border border-outline-variant/10 overflow-hidden">
                         <table className="w-full text-sm">
@@ -185,10 +213,22 @@ export default function ProgramView() {
                             {exercises.map((ex, i) => (
                               <tr key={i} className="border-t border-outline-variant/8 hover:bg-surface-container-highest/30 transition-colors">
                                 <td className="py-3 px-4">
-                                  <span className="text-on-surface font-body">{ex.exercise_name}</span>
-                                  {ex.is_calibration && (
-                                    <span className="ml-2 text-[8px] text-amber-600/70 font-bold uppercase tracking-widest">cal</span>
-                                  )}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-on-surface font-body">{ex.exercise_name}</span>
+                                    {ex.is_calibration && (
+                                      <span className="text-[8px] text-amber-600/70 font-bold uppercase tracking-widest">cal</span>
+                                    )}
+                                    {ex.notes?.includes('c/lado') && (
+                                      <span className="text-[8px] bg-secondary-container/40 text-secondary font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full">c/lado</span>
+                                    )}
+                                  </div>
+                                  {/* Rest time chip */}
+                                  {(() => {
+                                    const m = ex.notes?.match(/(\d+)s descanso/);
+                                    return m ? (
+                                      <span className="text-[10px] text-on-surface-variant/50 font-body mt-0.5 block">{m[1]}s descanso</span>
+                                    ) : null;
+                                  })()}
                                 </td>
                                 <td className="text-center py-3 px-2 hidden md:table-cell">
                                   <span className={`text-[10px] font-headline font-bold px-2 py-0.5 rounded-full border ${ROLE_BADGES[ex.role] || ROLE_BADGES.accessory}`}>
@@ -196,10 +236,22 @@ export default function ProgramView() {
                                   </span>
                                 </td>
                                 <td className="text-center py-3 px-2 text-on-surface font-body">{ex.sets}</td>
-                                <td className="text-center py-3 px-2 text-on-surface font-body">{ex.reps_min}–{ex.reps_max}</td>
+                                <td className="text-center py-3 px-2 text-on-surface font-body">
+                                  {ex.notes?.startsWith('⏱')
+                                    ? `${ex.reps_min}s`
+                                    : ex.reps_min === ex.reps_max
+                                    ? ex.reps_min
+                                    : `${ex.reps_min}–${ex.reps_max}`}
+                                </td>
                                 <td className="text-center py-3 px-2">
-                                  <span className="text-on-surface font-headline font-bold">{ex.weight}</span>
-                                  <span className="text-primary text-xs font-bold ml-0.5">kg</span>
+                                  {ex.weight > 0 ? (
+                                    <>
+                                      <span className="text-on-surface font-headline font-bold">{ex.weight}</span>
+                                      <span className="text-primary text-xs font-bold ml-0.5">kg</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-on-surface-variant/70 text-[10px] font-headline font-bold uppercase tracking-widest">BW / Banda</span>
+                                  )}
                                 </td>
                                 <td className="text-center py-3 px-2 text-on-surface-variant font-body">{ex.rpe}</td>
                               </tr>
@@ -225,11 +277,18 @@ export default function ProgramView() {
 
       {/* Periodization info */}
       <motion.div variants={fadeUp} className="card-elevated rounded-xl p-6">
-        <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-4">Protocolo de Progresión</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Protocolo de Progresión</h3>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-primary bg-primary-container/20 px-2.5 py-1 rounded-full">
+            Sem {currentWeek} / 12
+          </span>
+        </div>
         <div className="space-y-2 text-sm text-on-surface-variant font-body">
           <p>• <span className="text-on-surface font-medium">Compuestos superiores:</span> +2.5 kg al completar el tope de reps al RPE objetivo por 2 sesiones</p>
           <p>• <span className="text-on-surface font-medium">Compuestos inferiores:</span> +5 kg usando el mismo criterio</p>
           <p>• <span className="text-on-surface font-medium">Accesorios:</span> Primero agrega reps, luego peso</p>
+          <p>• <span className="text-on-surface font-medium">Isométricos / tiempo:</span> Suma 5s cada semana que llegues al tiempo objetivo</p>
+          <p>• <span className="text-on-surface font-medium">Unilaterales:</span> Iguala el lado más débil antes de subir carga</p>
           <p>• <span className="text-on-surface font-medium">Deload:</span> Auto-programado en la Semana 12</p>
         </div>
       </motion.div>
