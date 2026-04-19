@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -68,9 +68,10 @@ function StepsIndicator({ current, total }: { current: number; total: number }) 
 // ─── Main Component ──────────────────────────────────────
 interface OnboardingWizardProps {
   onComplete: () => void;
+  regenerateMode?: boolean;
 }
 
-export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+export default function OnboardingWizard({ onComplete, regenerateMode = false }: OnboardingWizardProps) {
   const { user } = useAuth();
 
   const [step, setStep] = useState(0);
@@ -98,11 +99,37 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const [liftsEstimated, setLiftsEstimated] = useState(false);
   const [infoLift, setInfoLift] = useState<string | null>(null);
 
-  const isNoEquipment = equipment === 'no_equipment';
-  const TOTAL_STEPS = isNoEquipment ? 3 : 4;
+  // Regenerate mode: pre-load existing profile
+  useEffect(() => {
+    if (!regenerateMode || !user) return;
+    supabase
+      .from('profiles')
+      .select('name, gender, bodyweight, height, training_experience, goal, equipment_access, schedule_days, session_minutes, limitations')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (!data) return;
+        setName(data.name ?? '');
+        setGender((data.gender as 'male' | 'female') ?? 'male');
+        setBodyweight(data.bodyweight ?? 75);
+        setHeight(data.height ?? 170);
+        setExperience(data.training_experience ?? 'intermediate');
+        setGoal(data.goal ?? 'hypertrophy');
+        setEquipment(data.equipment_access ?? 'commercial_gym');
+        setScheduleDays(data.schedule_days ?? 4);
+        setSessionMinutes(data.session_minutes ?? 60);
+        setLimitations(data.limitations ?? '');
+      });
+  }, [regenerateMode, user]);
+
+  const isNoEquipment = equipment === 'no_equipment' || equipment === 'bodyweight_only';
+  // In regenerate mode: 2 steps (goal/equipment + schedule). Normal: 3 or 4.
+  const TOTAL_STEPS = regenerateMode ? 2 : (isNoEquipment ? 3 : 4);
+  // contentStep maps visual step index to the matching normal-mode step (1=goals, 2=schedule)
+  const contentStep = regenerateMode ? step + 1 : step;
 
   const next = () => {
-    if (step === 2 && !liftsEstimated) {
+    if (!regenerateMode && step === 2 && !liftsEstimated) {
       const estimated = estimateKeyLifts(bodyweight, experience, gender);
       setKeyLifts(estimated);
       setLiftsEstimated(true);
@@ -116,12 +143,109 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   };
 
   const canProceed = () => {
-    switch (step) {
+    switch (contentStep) {
       case 0: return name.trim().length > 0 && bodyweight > 0 && height > 0;
       case 1: return true;
       case 2: return scheduleDays >= 2 && scheduleDays <= 6;
       case 3: return keyLifts.squat > 0 && keyLifts.bench > 0 && keyLifts.deadlift > 0 && keyLifts.ohp > 0;
       default: return false;
+    }
+  };
+
+  const handleRegenerateFinish = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      await supabase.from('profiles').update({
+        goal,
+        equipment_access: equipment,
+        schedule_days: scheduleDays,
+        session_minutes: sessionMinutes,
+        limitations: limitations || null,
+      }).eq('id', user.id);
+
+      const seedExercises = isNoEquipment ? NO_EQUIPMENT_DEFAULT_EXERCISES : DEFAULT_EXERCISES;
+      await supabase.from('exercises').upsert(
+        seedExercises.map((e) => ({ user_id: user.id, name: e.name, category: e.category, status: 'YES' as ExerciseStatus })),
+        { onConflict: 'user_id,name' }
+      );
+
+      const { data: exercises } = await supabase
+        .from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
+      if (!exercises || exercises.length === 0) throw new Error('No exercises');
+
+      const bmi = bodyweight / ((height / 100) ** 2);
+
+      let currentKeyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
+      if (!isNoEquipment) {
+        const { data: ww } = await supabase
+          .from('working_weights')
+          .select('weight, exercise:exercises(name)')
+          .eq('user_id', user.id);
+        if (ww && ww.length > 0) {
+          for (const w of ww) {
+            const ex = w.exercise as unknown as { name: string } | { name: string }[] | null;
+            const exName = Array.isArray(ex) ? ex[0]?.name : ex?.name;
+            if (exName === 'Barra Back Squat') currentKeyLifts.squat = w.weight;
+            if (exName === 'Barra Press de Banca') currentKeyLifts.bench = w.weight;
+            if (exName === 'Peso Muerto Convencional') currentKeyLifts.deadlift = w.weight;
+            if (exName === 'Barra Press Militar') currentKeyLifts.ohp = w.weight;
+          }
+        }
+        // Estimate any missing lifts from stored profile data
+        const estimated = estimateKeyLifts(bodyweight, experience, gender);
+        if (!currentKeyLifts.squat) currentKeyLifts.squat = estimated.squat;
+        if (!currentKeyLifts.bench) currentKeyLifts.bench = estimated.bench;
+        if (!currentKeyLifts.deadlift) currentKeyLifts.deadlift = estimated.deadlift;
+        if (!currentKeyLifts.ohp) currentKeyLifts.ohp = estimated.ohp;
+      }
+
+      let programName: string;
+      let splitType: string;
+      let totalDays: number;
+      let days: { day_number: number; day_name: string; exercises: unknown[] }[];
+
+      if (isNoEquipment) {
+        const engineProfile = deriveEngineProfile({ experience, scheduleDays, sessionMinutes, goal, hasBands: equipment === 'no_equipment' });
+        const program = generateNoEquipmentProgram(engineProfile, exercises, 1);
+        programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
+      } else {
+        const program = generateProgram(exercises, scheduleDays, bodyweight, experience, currentKeyLifts, goal, bmi, sessionMinutes, gender);
+        programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
+      }
+
+      const { data: savedProgram, error: pErr } = await supabase
+        .from('programs')
+        .insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays })
+        .select().single();
+      if (pErr || !savedProgram) throw pErr;
+
+      await supabase.from('program_days').insert(
+        days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises }))
+      );
+
+      if (!isNoEquipment) {
+        const mainLifts = [
+          { name: 'Barra Back Squat', weight: currentKeyLifts.squat },
+          { name: 'Barra Press de Banca', weight: currentKeyLifts.bench },
+          { name: 'Peso Muerto Convencional', weight: currentKeyLifts.deadlift },
+          { name: 'Barra Press Militar', weight: currentKeyLifts.ohp },
+        ];
+        for (const lift of mainLifts) {
+          const ex = exercises.find((e) => e.name === lift.name);
+          if (ex) {
+            await supabase.from('working_weights').upsert(
+              { user_id: user.id, exercise_id: ex.id, weight: lift.weight, updated_at: new Date().toISOString() },
+              { onConflict: 'user_id,exercise_id' }
+            );
+          }
+        }
+      }
+
+      onComplete();
+    } catch (err) {
+      console.error('Program regeneration failed:', err);
+      setSaving(false);
     }
   };
 
@@ -176,6 +300,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
           scheduleDays,
           sessionMinutes,
           goal,
+          hasBands: equipment === 'no_equipment',
         });
         const program = generateNoEquipmentProgram(engineProfile, exercises, 1);
         programName = program.name;
@@ -261,7 +386,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
       <div className="flex-1 relative z-10 px-8 flex flex-col justify-center max-w-lg mx-auto w-full">
         <AnimatePresence mode="wait" custom={dir}>
           {/* ─── Step 0: Identity ────────────────────── */}
-          {step === 0 && (
+          {contentStep === 0 && (
             <motion.div key="step-0" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
               <div>
                 <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
@@ -348,8 +473,8 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
             </motion.div>
           )}
 
-          {/* ─── Step 1: Experience & Goals ───────────── */}
-          {step === 1 && (
+          {/* ─── Step 1: Goals & Equipment ───────────── */}
+          {contentStep === 1 && (
             <motion.div key="step-1" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
               <div>
                 <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
@@ -361,18 +486,20 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
               </div>
 
               <motion.div variants={fadeUp} custom={2} initial="hidden" animate="show" className="space-y-6">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Experiencia</label>
-                  <ChipGroup
-                    options={[
-                      { value: 'beginner', label: 'Principiante' },
-                      { value: 'intermediate', label: 'Intermedio' },
-                      { value: 'advanced', label: 'Avanzado' },
-                    ]}
-                    value={experience}
-                    onChange={(v) => { setExperience(v); setLiftsEstimated(false); }}
-                  />
-                </div>
+                {!regenerateMode && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Experiencia</label>
+                    <ChipGroup
+                      options={[
+                        { value: 'beginner', label: 'Principiante' },
+                        { value: 'intermediate', label: 'Intermedio' },
+                        { value: 'advanced', label: 'Avanzado' },
+                      ]}
+                      value={experience}
+                      onChange={(v) => { setExperience(v); setLiftsEstimated(false); }}
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Objetivo</label>
                   <ChipGroup
@@ -393,12 +520,14 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                       { value: 'commercial_gym', label: 'Gimnasio comercial' },
                       { value: 'home_gym', label: 'Gimnasio en casa' },
                       { value: 'dumbbells_only', label: 'Solo mancuernas' },
-                      { value: 'no_equipment', label: 'Sin equipo (bandas + peso corporal)' },
+                      { value: 'no_equipment', label: 'Ligas/bandas + peso corporal' },
+                      { value: 'bodyweight_only', label: 'Peso corporal (sin equipo)' },
                     ]}
                     value={equipment}
                     onChange={(v) => {
                       setEquipment(v);
-                      if (v === 'no_equipment' && scheduleDays > 5) setScheduleDays(5);
+                      const isNoEq = v === 'no_equipment' || v === 'bodyweight_only';
+                      if (isNoEq && scheduleDays > 5) setScheduleDays(5);
                     }}
                   />
                 </div>
@@ -407,7 +536,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
           )}
 
           {/* ─── Step 2: Schedule ─────────────────────── */}
-          {step === 2 && (
+          {contentStep === 2 && (
             <motion.div key="step-2" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
               <div>
                 <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
@@ -473,7 +602,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
           )}
 
           {/* ─── Step 3: Key Lifts ────────────────────── */}
-          {step === 3 && (
+          {contentStep === 3 && (
             <motion.div key="step-3" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
               <div>
                 <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
@@ -566,7 +695,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
       {/* Footer Navigation */}
       <div className="relative z-10 px-8 pb-10 pt-6 flex items-center justify-between max-w-lg mx-auto w-full">
-        {step > 0 ? (
+        {step > 0 && !saving ? (
           <button
             onClick={prev}
             className="flex items-center gap-2 text-on-surface-variant hover:text-on-surface transition-colors font-headline font-bold text-sm"
@@ -587,7 +716,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
           </button>
         ) : (
           <button
-            onClick={handleFinish}
+            onClick={regenerateMode ? handleRegenerateFinish : handleFinish}
             disabled={saving || !canProceed()}
             className="bg-primary-container text-on-primary-container font-headline font-bold px-8 py-3.5 rounded-full text-base tracking-tight flex items-center gap-2 hover:scale-[1.03] active:scale-95 transition-all shadow-lg shadow-primary-container/25 disabled:opacity-30"
           >

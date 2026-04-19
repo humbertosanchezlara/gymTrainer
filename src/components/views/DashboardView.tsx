@@ -6,8 +6,9 @@ import { supabase } from '../../lib/supabase';
 import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/noEquipmentAdapter';
 import { DashboardSkeleton } from '../skeletons';
 import {
-  Dumbbell, RefreshCw, Loader2, Send, Sparkles, Check, X
+  Dumbbell, RefreshCw, Loader2, Send, Sparkles, Check, Plane
 } from 'lucide-react';
+import Modal from '../Modal';
 import type { Tab } from '../MainShell';
 
 // ─── Animation variants ───────────────────────────────────
@@ -170,6 +171,9 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
 
   const [showTravelSetup, setShowTravelSetup] = useState(false);
   const [travelDays, setTravelDays] = useState(3);
+  const [travelHasBands, setTravelHasBands] = useState(true);
+  const [travelHasPullupBar, setTravelHasPullupBar] = useState(false);
+  const [travelVolume, setTravelVolume] = useState<'basic' | 'intermediate' | 'advanced'>('intermediate');
 
   useEffect(() => {
     if (!user) return;
@@ -336,7 +340,10 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
         experience: profile?.training_experience || 'intermediate',
         scheduleDays: travelDays,
         sessionMinutes: profile?.session_minutes || 45,
-        goal: profile?.goal || 'general'
+        goal: profile?.goal || 'general',
+        hasBands: travelHasBands,
+        hasPullupBar: travelHasPullupBar,
+        volumeLevel: travelVolume,
       });
 
       const travelProg = generateNoEquipmentProgram(eProf, exercises || []);
@@ -447,44 +454,104 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
             <Dumbbell size={18} className="group-hover/btn:rotate-12 transition-transform" />
           </motion.button>
 
-          {!showTravelSetup ? (
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setShowTravelSetup(true)}
-              disabled={adjusting}
-              className="flex-1 sm:flex-none justify-center bg-surface-container-high/60 text-on-surface font-headline font-bold px-6 py-4 rounded-full text-sm tracking-tight hover:bg-surface-container-high border border-outline-variant/20 disabled:opacity-50 flex items-center gap-2"
-            >
-              <span>✈️ Modo Viaje</span>
-            </motion.button>
-          ) : (
-            <div className="flex-1 sm:flex-none flex items-center gap-3 bg-surface-container-high/60 rounded-full px-6 py-2 border border-outline-variant/20">
-              <span className="text-sm font-headline font-bold text-on-surface">Días/sem:</span>
-              <input
-                type="number"
-                min="1"
-                max="6"
-                value={travelDays}
-                onChange={(e) => setTravelDays(Number(e.target.value))}
-                aria-label="Días por semana para modo viaje"
-                className="w-12 bg-transparent text-center border-b border-primary text-on-surface font-headline font-bold focus:outline-none"
-              />
-              <button
-                onClick={handleTravelModeClick}
-                disabled={adjusting}
-                className="bg-primary text-on-primary px-4 py-2 rounded-full text-xs font-bold transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 flex items-center gap-1"
-              >
-                {adjusting ? <Loader2 size={14} className="animate-spin" /> : 'Generar'}
-              </button>
-              <button
-                onClick={() => setShowTravelSetup(false)}
-                aria-label="Cancelar modo viaje"
-                className="text-on-surface-variant hover:text-error transition-colors p-1"
-              >
-                <X size={18} />
-              </button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setShowTravelSetup(true)}
+            disabled={adjusting}
+            className="flex-1 sm:flex-none justify-center bg-surface-container-high/60 text-on-surface font-headline font-bold px-6 py-4 rounded-full text-sm tracking-tight hover:bg-surface-container-high border border-outline-variant/20 disabled:opacity-50 flex items-center gap-2"
+          >
+            <Plane size={16} /> Modo Viaje
+          </motion.button>
+
+          {/* Travel Setup Modal */}
+          <Modal
+            isOpen={showTravelSetup}
+            onClose={() => setShowTravelSetup(false)}
+            title="✈️ Modo Viaje"
+            description="Configura tu rutina según lo que tienes disponible ahora mismo."
+            size="md"
+            actions={
+              <>
+                <button
+                  onClick={() => setShowTravelSetup(false)}
+                  className="px-5 py-2.5 rounded-full text-sm font-headline font-bold text-on-surface-variant hover:bg-surface-container transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleTravelModeClick}
+                  disabled={adjusting}
+                  className="bg-primary-container text-on-primary-container font-headline font-bold px-6 py-2.5 rounded-full text-sm flex items-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-md disabled:opacity-50"
+                >
+                  {adjusting ? <><Loader2 size={14} className="animate-spin" /> Generando...</> : <><Check size={14} /> Generar Rutina</>}
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-6">
+              {/* Días por semana */}
+              <div>
+                <div className="flex items-baseline justify-between mb-3">
+                  <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Días por semana</label>
+                  <span className="text-3xl font-headline font-extrabold text-primary">{travelDays}</span>
+                </div>
+                <input
+                  type="range" min={2} max={5} value={travelDays}
+                  onChange={(e) => setTravelDays(Number(e.target.value))}
+                  className="w-full accent-primary h-1.5 bg-outline-variant/20 rounded-full appearance-none cursor-pointer"
+                />
+                <div className="flex justify-between text-on-surface-variant/40 text-xs mt-1.5 font-body">
+                  <span>2</span><span>3</span><span>4</span><span>5</span>
+                </div>
+              </div>
+
+              {/* Ligas / Bandas */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3">¿Tienes ligas o bandas?</label>
+                <div className="flex gap-2">
+                  {([{ value: true, label: 'Sí, tengo' }, { value: false, label: 'No tengo' }] as const).map(opt => (
+                    <button key={String(opt.value)} type="button" onClick={() => setTravelHasBands(opt.value)}
+                      className={`flex-1 py-2.5 rounded-full font-headline font-bold text-sm border transition-all ${travelHasBands === opt.value ? 'bg-primary-container text-on-primary-container border-primary-container shadow-sm' : 'bg-surface-container-low border-outline-variant/20 text-on-surface-variant hover:bg-surface-container'}`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Barras de calistenia */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3">¿Tienes acceso a barras de calistenia?</label>
+                <p className="text-on-surface-variant/60 text-xs font-body mb-3">Barra de dominadas, anillas, barras paralelas, etc.</p>
+                <div className="flex gap-2">
+                  {([{ value: true, label: 'Sí tengo' }, { value: false, label: 'No tengo' }] as const).map(opt => (
+                    <button key={String(opt.value)} type="button" onClick={() => setTravelHasPullupBar(opt.value)}
+                      className={`flex-1 py-2.5 rounded-full font-headline font-bold text-sm border transition-all ${travelHasPullupBar === opt.value ? 'bg-primary-container text-on-primary-container border-primary-container shadow-sm' : 'bg-surface-container-low border-outline-variant/20 text-on-surface-variant hover:bg-surface-container'}`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Volumen */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3">Volumen que toleras</label>
+                <div className="flex flex-col gap-2">
+                  {([
+                    { value: 'basic', label: 'Básico', desc: '5 – 10 reps por serie' },
+                    { value: 'intermediate', label: 'Intermedio', desc: '10 – 20 reps por serie' },
+                    { value: 'advanced', label: 'Avanzado', desc: '20+ reps por serie' },
+                  ] as const).map(opt => (
+                    <button key={opt.value} type="button" onClick={() => setTravelVolume(opt.value)}
+                      className={`w-full px-4 py-3 rounded-xl font-headline font-bold text-sm border text-left flex items-center justify-between transition-all ${travelVolume === opt.value ? 'bg-primary-container text-on-primary-container border-primary-container shadow-sm' : 'bg-surface-container-low border-outline-variant/20 text-on-surface-variant hover:bg-surface-container'}`}>
+                      <span>{opt.label}</span>
+                      <span className={`text-xs font-body font-normal ${travelVolume === opt.value ? 'text-on-primary-container/70' : 'text-on-surface-variant/50'}`}>{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
+          </Modal>
         </div>
       </motion.div>
 

@@ -14,6 +14,7 @@ function AppRouter() {
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [checkingProfile, setCheckingProfile] = useState(true);
   const [isRecovery, setIsRecovery] = useState(false);
+  const [showRegenerate, setShowRegenerate] = useState(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -67,7 +68,16 @@ function AppRouter() {
     );
   }
 
-  return <MainShell theme={theme} toggleTheme={toggleTheme} />;
+  if (showRegenerate) {
+    return (
+      <OnboardingWizard
+        regenerateMode
+        onComplete={() => setShowRegenerate(false)}
+      />
+    );
+  }
+
+  return <MainShell theme={theme} toggleTheme={toggleTheme} onProgramDeleted={() => setShowRegenerate(true)} />;
 }
 
 export default function App() {
