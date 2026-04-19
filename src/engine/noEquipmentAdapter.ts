@@ -159,7 +159,12 @@ export function deriveEngineProfile(opts: {
   scheduleDays: number;
   sessionMinutes: number;
   goal: string;
+  hasBands?: boolean;
+  hasPullupBar?: boolean;
+  volumeLevel?: 'basic' | 'intermediate' | 'advanced';
 }): UserProfile {
+  const hasBands = opts.hasBands !== false;
+
   const level =
     opts.experience === 'beginner'
       ? 'beginner'
@@ -167,28 +172,32 @@ export function deriveEngineProfile(opts: {
       ? 'advanced'
       : 'intermediate';
 
-  // Volume tolerance: scale by session length and experience
-  const volumeTolerance =
-    opts.sessionMinutes <= 30
-      ? 'low'
-      : opts.sessionMinutes <= 50
-      ? 'medium'
-      : opts.experience === 'advanced' || opts.goal === 'hypertrophy'
-      ? 'very_high'
-      : 'high';
+  let volumeTolerance: 'low' | 'medium' | 'high' | 'very_high';
+  if (opts.volumeLevel === 'basic') {
+    volumeTolerance = 'low';
+  } else if (opts.volumeLevel === 'intermediate') {
+    volumeTolerance = 'high';
+  } else if (opts.volumeLevel === 'advanced') {
+    volumeTolerance = 'very_high';
+  } else {
+    // Derive from session length and experience
+    volumeTolerance =
+      opts.sessionMinutes <= 30
+        ? 'low'
+        : opts.sessionMinutes <= 50
+        ? 'medium'
+        : opts.experience === 'advanced' || opts.goal === 'hypertrophy'
+        ? 'very_high'
+        : 'high';
+  }
 
   return {
     level,
     volumeTolerance,
-    equipment: [
-      'band',
-      'bodyweight',
-      'band_anchor_high',
-      'band_anchor_low',
-      'band_anchor_door',
-      'chair',
-    ],
-    restrictions: ['no_pullup_bar'],
+    equipment: hasBands
+      ? ['band', 'bodyweight', 'band_anchor_high', 'band_anchor_low', 'band_anchor_door', 'chair']
+      : ['bodyweight', 'chair'],
+    restrictions: opts.hasPullupBar ? [] : ['no_pullup_bar'],
     daysPerWeek: Math.min(Math.max(opts.scheduleDays, 2), 5),
   };
 }
@@ -232,8 +241,12 @@ export function generateNoEquipmentProgram(
       ? 'Upper / Lower híbrido'
       : 'PPL + Upper + Full Body';
 
+  const hasBandEquip = profile.equipment.includes('band');
+
   return {
-    name: 'Programa sin equipo — bandas + peso corporal',
+    name: hasBandEquip
+      ? 'Programa sin equipo — bandas + peso corporal'
+      : 'Programa de peso corporal',
     split_type: splitType,
     total_days: plan.days.length,
     total_weeks: 12,

@@ -39,7 +39,7 @@ function sessionDraftKey(userId: string) {
 }
 
 // ─── Component ────────────────────────────────────────────
-export default function LibraryView() {
+export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: () => void }) {
   const { user } = useAuth();
   const toast = useToast();
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -247,7 +247,8 @@ export default function LibraryView() {
 
       localStorage.removeItem(sessionDraftKey(user.id));
       setShowDeleteModal(false);
-      toast.success('Programa eliminado. Ve a Ajustes para generar uno nuevo.');
+      toast.success('Programa eliminado.');
+      onProgramDeleted();
     } catch (err) {
       console.error('Error eliminando programa:', err);
       toast.error('Error al eliminar el programa.');

@@ -26,10 +26,11 @@ export type Tab = typeof NAV[number]['id'];
 interface MainShellProps {
   theme: 'light' | 'dark';
   toggleTheme: () => void;
+  onProgramDeleted: () => void;
 }
 
 // ─── Main Shell ───────────────────────────────────────────
-export default function MainShell({ theme, toggleTheme }: MainShellProps) {
+export default function MainShell({ theme, toggleTheme, onProgramDeleted }: MainShellProps) {
   const { signOut } = useAuth();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [travelDraft, setTravelDraft] = useState<SessionLogEntry[] | null>(null);
@@ -122,7 +123,7 @@ export default function MainShell({ theme, toggleTheme }: MainShellProps) {
                 onClearTravel={() => setTravelDraft(null)}
               />
             )}
-            {tab === 'library' && <LibraryView key="lib" />}
+            {tab === 'library' && <LibraryView key="lib" onProgramDeleted={onProgramDeleted} />}
             {tab === 'progress' && <ProgressView key="prog" />}
           </AnimatePresence>
         </main>
