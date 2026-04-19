@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_EXERCISES, type ExerciseStatus } from '../types';
@@ -10,96 +9,84 @@ import {
   deriveEngineProfile,
   generateNoEquipmentProgram,
 } from '../engine/noEquipmentAdapter';
-import { ArrowRight, ArrowLeft, User, Target, Calendar, Dumbbell, Loader2, Check, Info, X } from 'lucide-react';
+import { ArrowRight, Loader2, Check, ChevronUp, ChevronDown } from 'lucide-react';
 
-// ─── Step animation variants ─────────────────────────────
-const stepVariants = {
-  enter: (dir: number) => ({ x: dir > 0 ? 80 : -80, opacity: 0 }),
-  center: { x: 0, opacity: 1, transition: { type: 'spring' as const, stiffness: 300, damping: 30 } },
-  exit: (dir: number) => ({ x: dir > 0 ? -80 : 80, opacity: 0, transition: { duration: 0.2 } }),
-};
-
-const fadeUp = {
-  hidden: { y: 16, opacity: 0 },
-  show: (i: number) => ({ y: 0, opacity: 1, transition: { delay: i * 0.06, type: 'spring' as const, stiffness: 300, damping: 24 } }),
-};
-
-// ─── Chip Selector Component ─────────────────────────────
-function ChipGroup({ options, value, onChange }: { options: { value: string; label: string }[]; value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          onClick={() => onChange(opt.value)}
-          className={`px-5 py-2.5 rounded-full font-headline font-bold text-sm tracking-tight transition-all duration-200 border ${
-            value === opt.value
-              ? 'bg-primary-container text-on-primary-container border-primary-container shadow-md shadow-primary-container/20'
-              : 'bg-surface-container-low border-outline-variant/20 text-on-surface-variant hover:bg-surface-container-high'
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ─── Steps indicator ─────────────────────────────────────
-function StepsIndicator({ current, total }: { current: number; total: number }) {
-  const percentage = ((current + 1) / total) * 100;
-  return (
-    <div className="space-y-2">
-      <p className="text-on-surface-variant text-xs font-body font-medium">
-        Paso {current + 1} de {total}
-      </p>
-      <div className="relative h-1.5 bg-outline-variant/20 rounded-full overflow-hidden w-48">
-        <motion.div
-          className="absolute inset-y-0 left-0 bg-primary-container rounded-full"
-          animate={{ width: `${percentage}%` }}
-          transition={{ type: 'spring', stiffness: 260, damping: 26 }}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ─── Main Component ──────────────────────────────────────
 interface OnboardingWizardProps {
   onComplete: () => void;
   regenerateMode?: boolean;
 }
 
+// ─── Stepper number input ─────────────────────────────────
+function NumStepper({ value, onChange, step = 2.5, min = 0 }: { value: number; onChange: (v: number) => void; step?: number; min?: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+      <span style={{ fontSize: 48, fontWeight: 700, fontFamily: 'var(--mono)', lineHeight: 1, minWidth: 80 }}>{value}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <button type="button" onClick={() => onChange(Math.round((value + step) / step) * step)}
+          style={{ width: 36, height: 36, border: '1px solid var(--rule)', borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', color: 'var(--ink)' }}>
+          <ChevronUp size={16} />
+        </button>
+        <button type="button" onClick={() => onChange(Math.max(min, Math.round((value - step) / step) * step))}
+          style={{ width: 36, height: 36, border: '1px solid var(--rule)', borderRadius: 8, background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', color: 'var(--ink)' }}>
+          <ChevronDown size={16} />
+        </button>
+      </div>
+      <span className="mono" style={{ color: 'var(--muted)', fontSize: 14 }}>kg</span>
+    </div>
+  );
+}
+
+// ─── Choice pill button ───────────────────────────────────
+function Choice({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: selected ? 'var(--ink)' : 'transparent',
+        color: selected ? 'var(--paper)' : 'var(--ink)',
+        border: '1px solid',
+        borderColor: selected ? 'var(--ink)' : 'var(--rule)',
+        padding: '14px 22px',
+        borderRadius: 999,
+        fontSize: 16,
+        fontFamily: 'var(--sans)',
+        fontWeight: 500,
+        cursor: 'pointer',
+        transition: 'background .15s, color .15s, border-color .15s',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function OnboardingWizard({ onComplete, regenerateMode = false }: OnboardingWizardProps) {
   const { user } = useAuth();
-
-  const [step, setStep] = useState(0);
-  const [dir, setDir] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState(0);
 
-  // Step 1: Identity
+  // Form state
   const [name, setName] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
-  const [bodyweight, setBodyweight] = useState<number>(75);
-  const [height, setHeight] = useState<number>(170);
-
-  // Step 2: Experience & Goals
+  const [bodyweight, setBodyweight] = useState(75);
+  const [height, setHeight] = useState(170);
   const [experience, setExperience] = useState('intermediate');
   const [goal, setGoal] = useState('hypertrophy');
   const [equipment, setEquipment] = useState('commercial_gym');
-
-  // Step 3: Schedule
   const [scheduleDays, setScheduleDays] = useState(4);
   const [sessionMinutes, setSessionMinutes] = useState(60);
   const [limitations, setLimitations] = useState('');
-
-  // Step 4: Key Lifts
   const [keyLifts, setKeyLifts] = useState({ squat: 0, bench: 0, deadlift: 0, ohp: 0 });
   const [liftsEstimated, setLiftsEstimated] = useState(false);
-  const [infoLift, setInfoLift] = useState<string | null>(null);
 
-  // Regenerate mode: pre-load existing profile
+  const isNoEquipment = equipment === 'no_equipment' || equipment === 'bodyweight_only';
+  const TOTAL_STEPS = regenerateMode ? 2 : (isNoEquipment ? 3 : 4);
+
+  // Map visual step → content step (regenerate mode skips step 0)
+  const contentStep = regenerateMode ? step + 1 : step;
+
+  // Pre-load profile in regenerate mode
   useEffect(() => {
     if (!regenerateMode || !user) return;
     supabase
@@ -122,25 +109,17 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
       });
   }, [regenerateMode, user]);
 
-  const isNoEquipment = equipment === 'no_equipment' || equipment === 'bodyweight_only';
-  // In regenerate mode: 2 steps (goal/equipment + schedule). Normal: 3 or 4.
-  const TOTAL_STEPS = regenerateMode ? 2 : (isNoEquipment ? 3 : 4);
-  // contentStep maps visual step index to the matching normal-mode step (1=goals, 2=schedule)
-  const contentStep = regenerateMode ? step + 1 : step;
-
   const next = () => {
     if (!regenerateMode && step === 2 && !liftsEstimated) {
       const estimated = estimateKeyLifts(bodyweight, experience, gender);
       setKeyLifts(estimated);
       setLiftsEstimated(true);
     }
-    setDir(1);
-    setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
+    if (step < TOTAL_STEPS - 1) setStep(s => s + 1);
+    else regenerateMode ? handleRegenerateFinish() : handleFinish();
   };
-  const prev = () => {
-    setDir(-1);
-    setStep((s) => Math.max(s - 1, 0));
-  };
+
+  const prev = () => setStep(s => Math.max(0, s - 1));
 
   const canProceed = () => {
     switch (contentStep) {
@@ -152,16 +131,14 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
     }
   };
 
+  // ─── Submit: regenerate mode ──────────────────────────
   const handleRegenerateFinish = async () => {
     if (!user) return;
     setSaving(true);
     try {
       await supabase.from('profiles').update({
-        goal,
-        equipment_access: equipment,
-        schedule_days: scheduleDays,
-        session_minutes: sessionMinutes,
-        limitations: limitations || null,
+        goal, equipment_access: equipment, schedule_days: scheduleDays,
+        session_minutes: sessionMinutes, limitations: limitations || null,
       }).eq('id', user.id);
 
       const seedExercises = isNoEquipment ? NO_EQUIPMENT_DEFAULT_EXERCISES : DEFAULT_EXERCISES;
@@ -170,19 +147,14 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         { onConflict: 'user_id,name' }
       );
 
-      const { data: exercises } = await supabase
-        .from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
+      const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
       if (!exercises || exercises.length === 0) throw new Error('No exercises');
 
       const bmi = bodyweight / ((height / 100) ** 2);
-
       let currentKeyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
       if (!isNoEquipment) {
-        const { data: ww } = await supabase
-          .from('working_weights')
-          .select('weight, exercise:exercises(name)')
-          .eq('user_id', user.id);
-        if (ww && ww.length > 0) {
+        const { data: ww } = await supabase.from('working_weights').select('weight, exercise:exercises(name)').eq('user_id', user.id);
+        if (ww) {
           for (const w of ww) {
             const ex = w.exercise as unknown as { name: string } | { name: string }[] | null;
             const exName = Array.isArray(ex) ? ex[0]?.name : ex?.name;
@@ -192,7 +164,6 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
             if (exName === 'Barra Press Militar') currentKeyLifts.ohp = w.weight;
           }
         }
-        // Estimate any missing lifts from stored profile data
         const estimated = estimateKeyLifts(bodyweight, experience, gender);
         if (!currentKeyLifts.squat) currentKeyLifts.squat = estimated.squat;
         if (!currentKeyLifts.bench) currentKeyLifts.bench = estimated.bench;
@@ -200,9 +171,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         if (!currentKeyLifts.ohp) currentKeyLifts.ohp = estimated.ohp;
       }
 
-      let programName: string;
-      let splitType: string;
-      let totalDays: number;
+      let programName: string, splitType: string, totalDays: number;
       let days: { day_number: number; day_name: string; exercises: unknown[] }[];
 
       if (isNoEquipment) {
@@ -214,15 +183,10 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
       }
 
-      const { data: savedProgram, error: pErr } = await supabase
-        .from('programs')
-        .insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays })
-        .select().single();
+      const { data: savedProgram, error: pErr } = await supabase.from('programs')
+        .insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays }).select().single();
       if (pErr || !savedProgram) throw pErr;
-
-      await supabase.from('program_days').insert(
-        days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises }))
-      );
+      await supabase.from('program_days').insert(days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises })));
 
       if (!isNoEquipment) {
         const mainLifts = [
@@ -233,15 +197,9 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         ];
         for (const lift of mainLifts) {
           const ex = exercises.find((e) => e.name === lift.name);
-          if (ex) {
-            await supabase.from('working_weights').upsert(
-              { user_id: user.id, exercise_id: ex.id, weight: lift.weight, updated_at: new Date().toISOString() },
-              { onConflict: 'user_id,exercise_id' }
-            );
-          }
+          if (ex) await supabase.from('working_weights').upsert({ user_id: user.id, exercise_id: ex.id, weight: lift.weight, updated_at: new Date().toISOString() }, { onConflict: 'user_id,exercise_id' });
         }
       }
-
       onComplete();
     } catch (err) {
       console.error('Program regeneration failed:', err);
@@ -249,95 +207,44 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
     }
   };
 
+  // ─── Submit: normal onboarding ────────────────────────
   const handleFinish = async () => {
     if (!user) return;
     setSaving(true);
-
     try {
       await supabase.from('profiles').upsert({
-        id: user.id,
-        name,
-        gender,
-        bodyweight,
-        height,
-        training_experience: experience,
-        goal,
-        schedule_days: scheduleDays,
-        session_minutes: sessionMinutes,
-        equipment_access: equipment,
+        id: user.id, name, gender, bodyweight, height,
+        training_experience: experience, goal, schedule_days: scheduleDays,
+        session_minutes: sessionMinutes, equipment_access: equipment,
         limitations: limitations || null,
       });
 
-      const seedExercises = isNoEquipment
-        ? NO_EQUIPMENT_DEFAULT_EXERCISES
-        : DEFAULT_EXERCISES;
-      const exerciseRows = seedExercises.map((e) => ({
-        user_id: user.id,
-        name: e.name,
-        category: e.category,
-        status: 'YES' as ExerciseStatus,
-      }));
-      await supabase.from('exercises').upsert(exerciseRows, { onConflict: 'user_id,name' });
+      const seedExercises = isNoEquipment ? NO_EQUIPMENT_DEFAULT_EXERCISES : DEFAULT_EXERCISES;
+      await supabase.from('exercises').upsert(
+        seedExercises.map((e) => ({ user_id: user.id, name: e.name, category: e.category, status: 'YES' as ExerciseStatus })),
+        { onConflict: 'user_id,name' }
+      );
 
-      const { data: exercises } = await supabase
-        .from('exercises')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'YES');
+      const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
+      if (!exercises || exercises.length === 0) throw new Error('Failed to seed exercises');
 
-      if (!exercises || exercises.length === 0) {
-        throw new Error('Failed to seed exercises');
-      }
-
-      let programName: string;
-      let splitType: string;
-      let totalDays: number;
+      let programName: string, splitType: string, totalDays: number;
       let days: { day_number: number; day_name: string; exercises: unknown[] }[];
 
       if (isNoEquipment) {
-        const engineProfile = deriveEngineProfile({
-          experience,
-          scheduleDays,
-          sessionMinutes,
-          goal,
-          hasBands: equipment === 'no_equipment',
-        });
+        const engineProfile = deriveEngineProfile({ experience, scheduleDays, sessionMinutes, goal, hasBands: equipment === 'no_equipment' });
         const program = generateNoEquipmentProgram(engineProfile, exercises, 1);
-        programName = program.name;
-        splitType = program.split_type;
-        totalDays = program.total_days;
-        days = program.days;
+        programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
       } else {
         const bmi = bodyweight / ((height / 100) ** 2);
-        const program = generateProgram(
-          exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes, gender
-        );
-        programName = program.name;
-        splitType = program.split_type;
-        totalDays = program.total_days;
-        days = program.days;
+        const program = generateProgram(exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes, gender);
+        programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
       }
 
-      const { data: savedProgram, error: pErr } = await supabase
-        .from('programs')
-        .insert({
-          user_id: user.id,
-          name: programName,
-          split_type: splitType,
-          total_days: totalDays,
-        })
-        .select()
-        .single();
-
+      const { data: savedProgram, error: pErr } = await supabase.from('programs')
+        .insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays }).select().single();
       if (pErr || !savedProgram) throw pErr;
-
-      const dayRows = days.map((d) => ({
-        program_id: savedProgram.id,
-        day_number: d.day_number,
-        day_name: d.day_name,
-        exercises: d.exercises,
-      }));
-      await supabase.from('program_days').insert(dayRows);
+      await supabase.from('program_days').insert(days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises })));
 
       if (!isNoEquipment) {
         const mainLifts = [
@@ -346,18 +253,11 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
           { name: 'Peso Muerto Convencional', weight: keyLifts.deadlift },
           { name: 'Barra Press Militar', weight: keyLifts.ohp },
         ];
-
         for (const lift of mainLifts) {
           const ex = exercises.find((e) => e.name === lift.name);
-          if (ex) {
-            await supabase.from('working_weights').upsert(
-              { user_id: user.id, exercise_id: ex.id, weight: lift.weight, updated_at: new Date().toISOString() },
-              { onConflict: 'user_id,exercise_id' }
-            );
-          }
+          if (ex) await supabase.from('working_weights').upsert({ user_id: user.id, exercise_id: ex.id, weight: lift.weight, updated_at: new Date().toISOString() }, { onConflict: 'user_id,exercise_id' });
         }
       }
-
       onComplete();
     } catch (err) {
       console.error('Onboarding failed:', err);
@@ -365,369 +265,287 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
     }
   };
 
-  // ─── Input class helper ─────────────────────────────────
-  const inputCls = "w-full bg-surface-container-low rounded-lg border-none py-4 px-5 text-on-surface text-lg placeholder:text-on-surface-variant/30 outline-none focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest transition-all font-body";
+  // ─── Shared section header ────────────────────────────
+  const SectionHeader = ({ n, question, hint }: { n: string; question: string; hint?: string }) => (
+    <div style={{ marginBottom: 48 }}>
+      <div className="mono uc" style={{ color: 'var(--muted)', marginBottom: 24, fontSize: 13 }}>{n} / {String(TOTAL_STEPS).padStart(2, '0')}</div>
+      <h1 className="d-xl" style={{ margin: 0 }}>{question}</h1>
+      {hint && <p className="body-l" style={{ color: 'var(--muted)', marginTop: 16, maxWidth: 560 }}>{hint}</p>}
+    </div>
+  );
+
+  // ─── BMI badge ────────────────────────────────────────
+  const bmi = bodyweight / ((height / 100) ** 2);
+  const bmiLabel = bmi < 18.5 ? 'Bajo peso' : bmi < 25 ? 'Rango saludable' : 'Sobre el rango recomendado';
+
+  const isLastStep = step === TOTAL_STEPS - 1;
 
   return (
-    <div className="min-h-screen bg-surface relative overflow-hidden flex flex-col">
-      {/* Ambient */}
-      <div className="absolute top-[-15%] right-[-10%] w-[50%] h-[50%] rounded-full bg-primary-container/15 blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-[-15%] left-[-10%] w-[40%] h-[40%] rounded-full bg-secondary-container/10 blur-[120px] pointer-events-none" />
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--paper)', color: 'var(--ink)' }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        input[type=range] { -webkit-appearance: none; appearance: none; height: 2px; background: var(--rule); border-radius: 2px; outline: none; cursor: pointer; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--ink); cursor: pointer; }
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+      `}</style>
 
       {/* Header */}
-      <div className="relative z-10 px-8 pt-10 pb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-headline font-extrabold tracking-tighter text-on-surface">
-          FIT<span className="text-primary">.</span>
-        </h1>
-        <StepsIndicator current={step} total={TOTAL_STEPS} />
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 32px', borderBottom: '1px solid var(--rule)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 26, height: 26, background: 'var(--ink)', borderRadius: 5, display: 'grid', placeItems: 'center', color: 'var(--paper)' }}>
+            <span className="serif" style={{ fontSize: 20, lineHeight: 1, fontStyle: 'italic' }}>F</span>
+          </div>
+          <span className="uc" style={{ fontSize: 12 }}>{regenerateMode ? 'Actualizar perfil' : 'Configurar'}</span>
+        </div>
+        <div className="mono caption" style={{ color: 'var(--muted)' }}>Paso {step + 1} de {TOTAL_STEPS}</div>
+        <div style={{ width: 80 }} />
+      </header>
+
+      {/* Progress bars */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${TOTAL_STEPS}, 1fr)`, gap: 4, padding: '0 32px' }}>
+        {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+          <div key={i} style={{ height: 3, background: i <= step ? 'var(--ink)' : 'var(--rule)', borderRadius: 2, transition: 'background .3s' }} />
+        ))}
       </div>
 
-      {/* Step Content */}
-      <div className="flex-1 relative z-10 px-8 flex flex-col justify-center max-w-lg mx-auto w-full">
-        <AnimatePresence mode="wait" custom={dir}>
-          {/* ─── Step 0: Identity ────────────────────── */}
-          {contentStep === 0 && (
-            <motion.div key="step-0" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
-              <div>
-                <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
-                  <User size={14} /> Identidad
-                </motion.div>
-                <motion.h2 variants={fadeUp} custom={1} initial="hidden" animate="show" className="text-4xl md:text-5xl font-headline font-extrabold tracking-tight leading-[1.1] text-on-surface">
-                  ¿Quién eres?
-                </motion.h2>
-              </div>
+      {/* Main content */}
+      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 32px' }}>
+        <div style={{ maxWidth: 720, width: '100%' }} className="forge-fade">
 
-              <motion.div variants={fadeUp} custom={2} initial="hidden" animate="show" className="space-y-5">
+          {/* ─── Step 0: Identity ─────────────────────── */}
+          {contentStep === 0 && (
+            <div>
+              <SectionHeader n="01" question="¿Quién eres?" hint="Usaremos esto para calibrar tu programa." />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2 ml-1">Nombre</label>
+                  <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12, fontSize: 11 }}>Nombre</div>
                   <input
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={e => setName(e.target.value)}
                     placeholder="Tu nombre"
-                    className={inputCls}
                     autoFocus
+                    style={{
+                      width: '100%', boxSizing: 'border-box',
+                      fontSize: 24, padding: '20px 0',
+                      border: 'none', borderBottom: '2px solid var(--rule)',
+                      background: 'transparent', color: 'var(--ink)',
+                      fontFamily: 'var(--sans)', outline: 'none',
+                      transition: 'border-color .2s',
+                    }}
+                    onFocus={e => (e.target.style.borderBottomColor = 'var(--ink)')}
+                    onBlur={e => (e.target.style.borderBottomColor = 'var(--rule)')}
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Género</label>
-                  <ChipGroup
-                    options={[
-                      { value: 'male', label: 'Masculino' },
-                      { value: 'female', label: 'Femenino' },
-                    ]}
-                    value={gender}
-                    onChange={(v) => { setGender(v as 'male' | 'female'); setLiftsEstimated(false); }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2 ml-1">Peso corporal (kg)</label>
-                  <input
-                    type="number"
-                    value={bodyweight}
-                    onChange={(e) => { setBodyweight(+e.target.value); setLiftsEstimated(false); }}
-                    className={inputCls}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2 ml-1">Altura (cm)</label>
-                  <input
-                    type="number"
-                    value={height}
-                    onChange={(e) => setHeight(+e.target.value)}
-                    placeholder="170"
-                    className={inputCls}
-                  />
-                </div>
-                {bodyweight > 0 && height > 0 && (
-                  <motion.div variants={fadeUp} custom={3} initial="hidden" animate="show" className="space-y-2">
-                    <div className="card-elevated rounded-xl p-4 flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">IMC</span>
-                        <p className="text-2xl font-headline font-extrabold text-on-surface">
-                          {(bodyweight / ((height / 100) ** 2)).toFixed(1)}
-                        </p>
-                      </div>
-                      <span className={`text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full ${
-                        (() => {
-                          const bmi = bodyweight / ((height / 100) ** 2);
-                          if (bmi < 18.5) return 'bg-blue-100 text-blue-700';
-                          if (bmi < 25) return 'bg-green-100 text-green-700';
-                          return 'bg-amber-100 text-amber-700';
-                        })()
-                      }`}>
-                        {(() => {
-                          const bmi = bodyweight / ((height / 100) ** 2);
-                          if (bmi < 18.5) return 'Bajo el rango promedio';
-                          if (bmi < 25) return 'Rango saludable';
-                          return 'Sobre el rango recomendado';
-                        })()}
-                      </span>
-                    </div>
-                    <p className="text-on-surface-variant/50 text-xs font-body ml-1">
-                      El IMC es una referencia general. No toma en cuenta tu masa muscular o densidad ósea.
-                    </p>
-                  </motion.div>
-                )}
-              </motion.div>
-            </motion.div>
-          )}
 
-          {/* ─── Step 1: Goals & Equipment ───────────── */}
-          {contentStep === 1 && (
-            <motion.div key="step-1" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
-              <div>
-                <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
-                  <Target size={14} /> Experiencia y Objetivos
-                </motion.div>
-                <motion.h2 variants={fadeUp} custom={1} initial="hidden" animate="show" className="text-4xl md:text-5xl font-headline font-extrabold tracking-tight leading-[1.1] text-on-surface">
-                  ¿Dónde estás?
-                </motion.h2>
-              </div>
+                <div>
+                  <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16, fontSize: 11 }}>Género</div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <Choice label="Masculino" selected={gender === 'male'} onClick={() => { setGender('male'); setLiftsEstimated(false); }} />
+                    <Choice label="Femenino" selected={gender === 'female'} onClick={() => { setGender('female'); setLiftsEstimated(false); }} />
+                  </div>
+                </div>
 
-              <motion.div variants={fadeUp} custom={2} initial="hidden" animate="show" className="space-y-6">
-                {!regenerateMode && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Experiencia</label>
-                    <ChipGroup
-                      options={[
-                        { value: 'beginner', label: 'Principiante' },
-                        { value: 'intermediate', label: 'Intermedio' },
-                        { value: 'advanced', label: 'Avanzado' },
-                      ]}
-                      value={experience}
-                      onChange={(v) => { setExperience(v); setLiftsEstimated(false); }}
+                    <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12, fontSize: 11 }}>Peso corporal (kg)</div>
+                    <input
+                      type="number"
+                      value={bodyweight}
+                      onChange={e => { setBodyweight(+e.target.value); setLiftsEstimated(false); }}
+                      style={{ width: '100%', boxSizing: 'border-box', fontSize: 32, fontFamily: 'var(--mono)', fontWeight: 600, padding: '16px 0', border: 'none', borderBottom: '2px solid var(--rule)', background: 'transparent', color: 'var(--ink)', outline: 'none' }}
                     />
                   </div>
+                  <div>
+                    <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12, fontSize: 11 }}>Altura (cm)</div>
+                    <input
+                      type="number"
+                      value={height}
+                      onChange={e => setHeight(+e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', fontSize: 32, fontFamily: 'var(--mono)', fontWeight: 600, padding: '16px 0', border: 'none', borderBottom: '2px solid var(--rule)', background: 'transparent', color: 'var(--ink)', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                {bodyweight > 0 && height > 0 && (
+                  <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div className="uc" style={{ color: 'var(--muted)', fontSize: 11, marginBottom: 4 }}>IMC</div>
+                      <div className="mono" style={{ fontSize: 28, fontWeight: 700 }}>{bmi.toFixed(1)}</div>
+                    </div>
+                    <span style={{ fontSize: 12, fontFamily: 'var(--mono)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '6px 14px', borderRadius: 999, border: '1px solid var(--rule)', color: 'var(--muted)' }}>
+                      {bmiLabel}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ─── Step 1: Goals & Equipment ────────────── */}
+          {contentStep === 1 && (
+            <div>
+              <SectionHeader n="02" question="¿Qué buscas?" hint="Tu programa se ajusta completamente a esto." />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 40 }}>
+                {!regenerateMode && (
+                  <div>
+                    <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16, fontSize: 11 }}>Experiencia</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                      {[
+                        { v: 'beginner', l: 'Principiante' },
+                        { v: 'intermediate', l: 'Intermedio' },
+                        { v: 'advanced', l: 'Avanzado' },
+                      ].map(o => <Choice key={o.v} label={o.l} selected={experience === o.v} onClick={() => { setExperience(o.v); setLiftsEstimated(false); }} />)}
+                    </div>
+                  </div>
                 )}
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Objetivo</label>
-                  <ChipGroup
-                    options={[
-                      { value: 'hypertrophy', label: 'Hipertrofia' },
-                      { value: 'strength', label: 'Fuerza' },
-                      { value: 'fat_loss', label: 'Pérdida de grasa' },
-                      { value: 'general', label: 'Fitness general' },
-                    ]}
-                    value={goal}
-                    onChange={setGoal}
-                  />
+                  <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16, fontSize: 11 }}>Objetivo</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {[
+                      { v: 'hypertrophy', l: 'Hipertrofia' },
+                      { v: 'strength', l: 'Fuerza' },
+                      { v: 'fat_loss', l: 'Pérdida de grasa' },
+                      { v: 'general', l: 'Fitness general' },
+                    ].map(o => <Choice key={o.v} label={o.l} selected={goal === o.v} onClick={() => setGoal(o.v)} />)}
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3 ml-1">Equipamiento</label>
-                  <ChipGroup
-                    options={[
-                      { value: 'commercial_gym', label: 'Gimnasio comercial' },
-                      { value: 'home_gym', label: 'Gimnasio en casa' },
-                      { value: 'dumbbells_only', label: 'Solo mancuernas' },
-                      { value: 'no_equipment', label: 'Ligas/bandas + peso corporal' },
-                      { value: 'bodyweight_only', label: 'Peso corporal (sin equipo)' },
-                    ]}
-                    value={equipment}
-                    onChange={(v) => {
-                      setEquipment(v);
-                      const isNoEq = v === 'no_equipment' || v === 'bodyweight_only';
-                      if (isNoEq && scheduleDays > 5) setScheduleDays(5);
-                    }}
-                  />
+                  <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16, fontSize: 11 }}>Equipamiento</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {[
+                      { v: 'commercial_gym', l: 'Gimnasio' },
+                      { v: 'home_gym', l: 'Casa con mancuernas' },
+                      { v: 'dumbbells_only', l: 'Solo mancuernas' },
+                      { v: 'no_equipment', l: 'Bandas + cuerpo' },
+                      { v: 'bodyweight_only', l: 'Sin equipo' },
+                    ].map(o => <Choice key={o.v} label={o.l} selected={equipment === o.v} onClick={() => { setEquipment(o.v); if ((o.v === 'no_equipment' || o.v === 'bodyweight_only') && scheduleDays > 5) setScheduleDays(5); }} />)}
+                  </div>
                 </div>
-              </motion.div>
-            </motion.div>
+              </div>
+            </div>
           )}
 
-          {/* ─── Step 2: Schedule ─────────────────────── */}
+          {/* ─── Step 2: Schedule ──────────────────────── */}
           {contentStep === 2 && (
-            <motion.div key="step-2" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
-              <div>
-                <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
-                  <Calendar size={14} /> Horario
-                </motion.div>
-                <motion.h2 variants={fadeUp} custom={1} initial="hidden" animate="show" className="text-4xl md:text-5xl font-headline font-extrabold tracking-tight leading-[1.1] text-on-surface">
-                  ¿Cuántos días?
-                </motion.h2>
-              </div>
-
-              <motion.div variants={fadeUp} custom={2} initial="hidden" animate="show" className="space-y-8">
+            <div>
+              <SectionHeader n="03" question="¿Cuántos días?" hint="Sé honesto. Vale más cumplir 3 que prometer 6." />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
                 <div>
-                  <div className="flex items-baseline justify-between mb-4">
-                    <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Días por semana</label>
-                    <span className="text-5xl font-headline font-extrabold text-primary">{scheduleDays}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 24 }}>
+                    <div className="uc" style={{ color: 'var(--muted)', fontSize: 11 }}>Días por semana</div>
+                    <span className="mono" style={{ fontSize: 64, fontWeight: 700, lineHeight: 1 }}>{scheduleDays}</span>
                   </div>
-                  <input
-                    type="range"
-                    min={2}
-                    max={isNoEquipment ? 5 : 6}
-                    value={scheduleDays}
-                    onChange={(e) => setScheduleDays(+e.target.value)}
-                    className="w-full accent-primary h-1.5 bg-outline-variant/20 rounded-full appearance-none cursor-pointer"
-                  />
-                  <div className="flex justify-between text-on-surface-variant/40 text-xs mt-2 font-body">
-                    <span>2</span><span>3</span><span>4</span><span>5</span>{!isNoEquipment && <span>6</span>}
+                  <input type="range" min={2} max={isNoEquipment ? 5 : 6} value={scheduleDays}
+                    onChange={e => setScheduleDays(+e.target.value)}
+                    style={{ width: '100%', accentColor: 'var(--ink)' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }} className="mono caption">
+                    <span style={{ color: 'var(--muted)' }}>2</span><span style={{ color: 'var(--muted)' }}>3</span>
+                    <span style={{ color: 'var(--muted)' }}>4</span><span style={{ color: 'var(--muted)' }}>5</span>
+                    {!isNoEquipment && <span style={{ color: 'var(--muted)' }}>6</span>}
                   </div>
                 </div>
 
                 <div>
-                  <div className="flex items-baseline justify-between mb-4">
-                    <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Tiempo por sesión</label>
-                    <span className="text-5xl font-headline font-extrabold text-primary">{sessionMinutes}<span className="text-lg ml-1">min</span></span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 24 }}>
+                    <div className="uc" style={{ color: 'var(--muted)', fontSize: 11 }}>Tiempo por sesión</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                      <span className="mono" style={{ fontSize: 64, fontWeight: 700, lineHeight: 1 }}>{sessionMinutes}</span>
+                      <span className="mono" style={{ color: 'var(--muted)', fontSize: 18 }}>min</span>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min={20}
-                    max={90}
-                    step={5}
-                    value={sessionMinutes}
-                    onChange={(e) => setSessionMinutes(+e.target.value)}
-                    className="w-full accent-primary h-1.5 bg-outline-variant/20 rounded-full appearance-none cursor-pointer"
-                  />
-                  <div className="flex justify-between text-on-surface-variant/40 text-xs mt-2 font-body">
-                    <span>20</span><span>35</span><span>50</span><span>65</span><span>80</span><span>90</span>
+                  <input type="range" min={20} max={90} step={5} value={sessionMinutes}
+                    onChange={e => setSessionMinutes(+e.target.value)}
+                    style={{ width: '100%', accentColor: 'var(--ink)' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }} className="mono caption">
+                    {['20', '35', '50', '65', '80', '90'].map(v => <span key={v} style={{ color: 'var(--muted)' }}>{v}</span>)}
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2 ml-1">
-                    Lesiones / Limitaciones <span className="text-on-surface-variant/30">(opcional)</span>
-                  </label>
+                  <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12, fontSize: 11 }}>
+                    Lesiones / Limitaciones <span style={{ opacity: .5 }}>(opcional)</span>
+                  </div>
                   <textarea
                     value={limitations}
-                    onChange={(e) => setLimitations(e.target.value)}
+                    onChange={e => setLimitations(e.target.value)}
                     placeholder="Ej. Dolor en hombro izquierdo, problemas de espalda baja..."
                     rows={2}
-                    className="w-full bg-surface-container-low rounded-lg border-none py-3 px-5 text-on-surface text-sm placeholder:text-on-surface-variant/30 outline-none focus:ring-1 focus:ring-primary transition-all font-body resize-none"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '16px 0', border: 'none', borderBottom: '2px solid var(--rule)', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', fontSize: 16, outline: 'none', resize: 'none' }}
                   />
                 </div>
-              </motion.div>
-            </motion.div>
+              </div>
+            </div>
           )}
 
-          {/* ─── Step 3: Key Lifts ────────────────────── */}
+          {/* ─── Step 3: Key Lifts ──────────────────────── */}
           {contentStep === 3 && (
-            <motion.div key="step-3" custom={dir} variants={stepVariants} initial="enter" animate="center" exit="exit" className="space-y-8">
-              <div>
-                <motion.div variants={fadeUp} custom={0} initial="hidden" animate="show" className="inline-flex items-center gap-2 text-primary text-xs font-bold uppercase tracking-[0.2em] mb-3">
-                  <Dumbbell size={14} /> Pesos de Trabajo
-                </motion.div>
-                <motion.h2 variants={fadeUp} custom={1} initial="hidden" animate="show" className="text-4xl md:text-5xl font-headline font-extrabold tracking-tight leading-[1.1] text-on-surface">
-                  ¿Cuánto estás levantando?
-                </motion.h2>
-                <motion.p variants={fadeUp} custom={2} initial="hidden" animate="show" className="text-on-surface-variant mt-2 text-sm font-body">
-                  Estos son tus pesos de trabajo actuales — no 1RMs. Los estimamos a partir de tu peso corporal. Ajústalos si es necesario.
-                </motion.p>
-                <motion.div variants={fadeUp} custom={2.5} initial="hidden" animate="show" className="mt-3 bg-surface-container-low rounded-lg p-3 border border-outline-variant/15">
-                  <p className="text-on-surface-variant/60 text-xs font-body leading-relaxed">
-                    <span className="font-bold text-on-surface-variant">¿Qué es 1RM?</span> El peso máximo que puedes levantar en una sola repetición manteniendo una técnica perfecta. Se usa como referencia para medir tu fuerza total, pero no es el peso con el que debes entrenar a diario.
+            <div>
+              <SectionHeader n="04" question="¿Cuánto estás levantando?" hint="Pesos de trabajo actuales — no 1RMs. Los estimamos de tu perfil; ajústalos si hace falta." />
+              <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden', marginBottom: 24 }}>
+                <div style={{ padding: '16px 24px', background: 'var(--paper-2)', borderBottom: '1px solid var(--rule)' }}>
+                  <p className="body-s" style={{ color: 'var(--muted)', margin: 0 }}>
+                    <strong style={{ color: 'var(--ink)' }}>¿Qué es 1RM?</strong> El peso máximo que puedes levantar en una sola repetición con técnica perfecta. No es el peso con el que entrenas a diario.
                   </p>
-                </motion.div>
+                </div>
               </div>
-
-              <motion.div variants={fadeUp} custom={3} initial="hidden" animate="show" className="grid grid-cols-2 gap-4">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 {([
-                  { key: 'squat', label: 'Sentadilla', desc: 'El ejercicio fundamental para fortalecer piernas y glúteos. Consiste en bajar la cadera como si fueras a sentarte, manteniendo la espalda recta y subiendo con la fuerza de tus piernas.' },
-                  { key: 'bench', label: 'Press de Pecho (Barra)', desc: 'Realizado sobre un banco plano, consiste en empujar una barra hacia arriba desde el pecho. Es el movimiento clave para desarrollar fuerza en pectorales y tríceps.' },
-                  { key: 'deadlift', label: 'Peso Muerto (Tren Inferior)', desc: 'Consiste en levantar el peso desde el suelo hasta la altura de la cadera. Es el mejor ejercicio para trabajar la cadena posterior: glúteos, isquiotibiales y espalda baja.' },
-                  { key: 'ohp', label: 'Press de Hombro (Mancuerna)', desc: 'Sentado o de pie, empujas las mancuernas por encima de tu cabeza hasta estirar los brazos. Se enfoca totalmente en la fuerza y estabilidad de los hombros.' },
-                ] as const).map((lift) => (
-                  <div key={lift.key} className="card-elevated rounded-xl p-5 relative">
-                    <div className="flex items-start justify-between mb-2">
-                      <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest leading-tight pr-5">{lift.label}</label>
-                      <button
-                        type="button"
-                        onClick={() => setInfoLift(infoLift === lift.key ? null : lift.key)}
-                        className="text-on-surface-variant/40 hover:text-primary transition-colors shrink-0 -mt-0.5"
-                      >
-                        <Info size={14} />
-                      </button>
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                      <input
-                        type="number"
-                        value={keyLifts[lift.key]}
-                        onChange={(e) => setKeyLifts({ ...keyLifts, [lift.key]: +e.target.value })}
-                        step={2.5}
-                        className="w-full bg-transparent text-3xl font-headline font-extrabold text-on-surface outline-none"
-                      />
-                      <span className="text-primary font-headline font-bold text-sm shrink-0">kg</span>
-                    </div>
+                  { key: 'squat',    label: 'Sentadilla' },
+                  { key: 'bench',    label: 'Press de Pecho (Barra)' },
+                  { key: 'deadlift', label: 'Peso Muerto' },
+                  { key: 'ohp',      label: 'Press de Hombro' },
+                ] as const).map(lift => (
+                  <div key={lift.key} style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '20px 24px' }}>
+                    <div className="uc" style={{ color: 'var(--muted)', fontSize: 10, marginBottom: 16 }}>{lift.label}</div>
+                    <NumStepper
+                      value={keyLifts[lift.key]}
+                      onChange={v => setKeyLifts({ ...keyLifts, [lift.key]: v })}
+                      step={2.5}
+                      min={0}
+                    />
                   </div>
                 ))}
-              </motion.div>
-
-              {/* Exercise info modal */}
-              <AnimatePresence>
-                {infoLift && (() => {
-                  const liftData = {
-                    squat: { label: 'Sentadilla', desc: 'El ejercicio fundamental para fortalecer piernas y glúteos. Consiste en bajar la cadera como si fueras a sentarte, manteniendo la espalda recta y subiendo con la fuerza de tus piernas.' },
-                    bench: { label: 'Press de Pecho (Barra)', desc: 'Realizado sobre un banco plano, consiste en empujar una barra hacia arriba desde el pecho. Es el movimiento clave para desarrollar fuerza en pectorales y tríceps.' },
-                    deadlift: { label: 'Peso Muerto (Tren Inferior)', desc: 'Consiste en levantar el peso desde el suelo hasta la altura de la cadera. Es el mejor ejercicio para trabajar la cadena posterior: glúteos, isquiotibiales y espalda baja.' },
-                    ohp: { label: 'Press de Hombro (Mancuerna)', desc: 'Sentado o de pie, empujas las mancuernas por encima de tu cabeza hasta estirar los brazos. Se enfoca totalmente en la fuerza y estabilidad de los hombros.' },
-                  }[infoLift];
-                  return liftData ? (
-                    <motion.div
-                      key="info-modal"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                      className="bg-surface-container-low border border-outline-variant/20 rounded-xl p-4 shadow-lg"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-headline font-bold text-sm text-on-surface mb-1">{liftData.label}</p>
-                          <p className="text-on-surface-variant text-xs font-body leading-relaxed">{liftData.desc}</p>
-                        </div>
-                        <button type="button" onClick={() => setInfoLift(null)} className="text-on-surface-variant/40 hover:text-on-surface transition-colors shrink-0 mt-0.5">
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </motion.div>
-                  ) : null;
-                })()}
-              </AnimatePresence>
-
-              <motion.p variants={fadeUp} custom={4} initial="hidden" animate="show" className="text-on-surface-variant/50 text-xs font-body">
+              </div>
+              <p className="caption" style={{ color: 'var(--muted)', marginTop: 24 }}>
                 La semana 1 es de calibración — estos pesos se validarán durante tus primeras sesiones.
-              </motion.p>
-            </motion.div>
+              </p>
+            </div>
           )}
-        </AnimatePresence>
-      </div>
+        </div>
+      </main>
 
-      {/* Footer Navigation */}
-      <div className="relative z-10 px-8 pb-10 pt-6 flex items-center justify-between max-w-lg mx-auto w-full">
-        {step > 0 && !saving ? (
-          <button
-            onClick={prev}
-            className="flex items-center gap-2 text-on-surface-variant hover:text-on-surface transition-colors font-headline font-bold text-sm"
-          >
-            <ArrowLeft size={16} /> Atrás
-          </button>
-        ) : (
-          <div />
-        )}
+      {/* Footer navigation */}
+      <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 32px', borderTop: '1px solid var(--rule)' }}>
+        <button
+          onClick={prev}
+          disabled={step === 0}
+          className="btn btn-ghost"
+          style={{ opacity: step === 0 ? 0.3 : 1 }}
+        >
+          ← Atrás
+        </button>
 
-        {step < TOTAL_STEPS - 1 ? (
-          <button
-            onClick={next}
-            disabled={!canProceed()}
-            className="bg-primary-container text-on-primary-container font-headline font-bold px-8 py-3.5 rounded-full text-base tracking-tight flex items-center gap-2 hover:scale-[1.03] active:scale-95 transition-all shadow-lg shadow-primary-container/20 disabled:opacity-30 disabled:hover:scale-100"
-          >
-            Continuar <ArrowRight size={16} />
-          </button>
-        ) : (
-          <button
-            onClick={regenerateMode ? handleRegenerateFinish : handleFinish}
-            disabled={saving || !canProceed()}
-            className="bg-primary-container text-on-primary-container font-headline font-bold px-8 py-3.5 rounded-full text-base tracking-tight flex items-center gap-2 hover:scale-[1.03] active:scale-95 transition-all shadow-lg shadow-primary-container/25 disabled:opacity-30"
-          >
-            {saving ? (
-              <><Loader2 size={18} className="animate-spin" /> Generando...</>
-            ) : (
-              <><Check size={18} /> Generar Programa</>
-            )}
-          </button>
-        )}
-      </div>
+        <div className="mono caption" style={{ color: 'var(--muted)' }}>
+          {Math.round(((step + 1) / TOTAL_STEPS) * 100)}%
+        </div>
+
+        <button
+          onClick={next}
+          disabled={saving || !canProceed()}
+          className="btn btn-ink btn-lg"
+          style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: (!canProceed() && !saving) ? 0.4 : 1 }}
+        >
+          {saving ? (
+            <><Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite' }} /> Generando...</>
+          ) : isLastStep ? (
+            <><Check size={16} /> Generar programa</>
+          ) : (
+            <>Siguiente <ArrowRight size={16} /></>
+          )}
+        </button>
+      </footer>
     </div>
   );
 }
