@@ -8,7 +8,7 @@ import LibraryView from './views/LibraryView';
 import ProgressView from './views/ProgressView';
 import type { SessionLogEntry } from './views/DashboardView';
 import {
-  Activity, Dumbbell, BookOpen, LineChart, ClipboardList, LogOut,
+  Activity, Dumbbell, BookOpen, LineChart, ClipboardList, LogOut, Moon, Sun,
 } from 'lucide-react';
 
 // ─── Nav Items ────────────────────────────────────────────
@@ -22,8 +22,14 @@ const NAV = [
 
 export type Tab = typeof NAV[number]['id'];
 
+// ─── Props ────────────────────────────────────────────────
+interface MainShellProps {
+  theme: 'light' | 'dark';
+  toggleTheme: () => void;
+}
+
 // ─── Main Shell ───────────────────────────────────────────
-export default function MainShell() {
+export default function MainShell({ theme, toggleTheme }: MainShellProps) {
   const { signOut } = useAuth();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [travelDraft, setTravelDraft] = useState<SessionLogEntry[] | null>(null);
@@ -73,13 +79,28 @@ export default function MainShell() {
             </nav>
           </div>
 
-          <button
-            onClick={signOut}
-            aria-label="Cerrar sesión"
-            className="flex items-center gap-3 text-on-surface-variant/50 hover:text-on-surface-variant transition-colors text-sm font-body px-5 py-3"
-          >
-            <LogOut size={16} /> Cerrar sesión
-          </button>
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+              className="flex items-center gap-3 px-4 py-3 rounded-full text-on-surface-variant hover:bg-surface-container-high transition-colors w-full"
+            >
+              {theme === 'dark'
+                ? <Sun size={20} />
+                : <Moon size={20} />
+              }
+              <span className="font-body text-sm">
+                {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+              </span>
+            </button>
+            <button
+              onClick={signOut}
+              aria-label="Cerrar sesión"
+              className="flex items-center gap-3 text-on-surface-variant/50 hover:text-on-surface-variant transition-colors text-sm font-body px-5 py-3"
+            >
+              <LogOut size={16} /> Cerrar sesión
+            </button>
+          </div>
         </aside>
 
         {/* Content */}
@@ -106,6 +127,15 @@ export default function MainShell() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Mobile theme toggle — visible solo en móvil */}
+      <button
+        onClick={toggleTheme}
+        aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+        className="lg:hidden fixed bottom-20 right-4 z-50 w-10 h-10 flex items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant shadow-md hover:bg-surface-container-highest transition-colors"
+      >
+        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
 
       {/* Mobile Bottom Nav */}
       <nav role="navigation" aria-label="Navegación móvil" className="lg:hidden fixed bottom-0 inset-x-0 z-50 glass-nav">

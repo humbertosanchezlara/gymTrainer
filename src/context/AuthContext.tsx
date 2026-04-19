@@ -36,8 +36,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
+
+    // Sembrar ejercicios de banda/peso corporal para el nuevo usuario.
+    // El seed no bloquea el registro: si falla, el usuario puede usar
+    // migration_bands.sql de forma manual.
+    if (data.user) {
+      try {
+        await supabase.rpc('seed_band_exercises_for_user', {
+          p_user_id: data.user.id,
+        });
+      } catch (seedError) {
+        console.warn('[AuthContext] Error sembrando ejercicios de banda:', seedError);
+      }
+    }
   };
 
   const signIn = async (email: string, password: string) => {

@@ -6,9 +6,11 @@ import AuthScreen from './components/AuthScreen';
 import OnboardingWizard from './components/OnboardingWizard';
 import MainShell from './components/MainShell';
 import ResetPasswordScreen from './components/ResetPasswordScreen';
+import { useTheme } from './hooks/useTheme';
 
 function AppRouter() {
   const { user, loading } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [checkingProfile, setCheckingProfile] = useState(true);
   const [isRecovery, setIsRecovery] = useState(false);
@@ -65,7 +67,7 @@ function AppRouter() {
     );
   }
 
-  return <MainShell />;
+  return <MainShell theme={theme} toggleTheme={toggleTheme} />;
 }
 
 export default function App() {
