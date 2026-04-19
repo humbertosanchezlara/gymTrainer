@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
@@ -8,37 +7,20 @@ import { DEFAULT_EXERCISES, type MovementCategory, type ExerciseStatus, CATEGORY
 import { generateProgram } from '../../engine/programGenerator';
 import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/noEquipmentAdapter';
 import Modal from '../Modal';
-import { NoExercisesEmpty } from '../EmptyState';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { getCatalogEntry } from '../../data/exerciseCatalog';
-import {
-  ChevronRight, RefreshCw, Loader2, Trash2, Info, AlertTriangle
-} from 'lucide-react';
-
-// ─── Animation variants ───────────────────────────────────
-const stagger = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.15 } },
-};
-const fadeUp = {
-  hidden: { y: 18, opacity: 0 },
-  show: { y: 0, opacity: 1, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } },
-};
-
-const containerVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.05 } },
-};
-const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
-  show: { opacity: 1, y: 0 },
-};
+import { Loader2, RefreshCw, Trash2, ChevronDown, Info, Plus } from 'lucide-react';
 
 function sessionDraftKey(userId: string) {
   return `session_draft_${userId}`;
 }
 
-// ─── Component ────────────────────────────────────────────
+const STATUS_STYLES: Record<ExerciseStatus, { bg: string; color: string }> = {
+  YES: { bg: 'var(--ink)', color: 'var(--paper)' },
+  SUB: { bg: 'var(--paper-2)', color: 'var(--ink)' },
+  NO:  { bg: 'transparent', color: 'var(--muted)' },
+};
+
 export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: () => void }) {
   const { user } = useAuth();
   const toast = useToast();
@@ -83,29 +65,17 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
   const regenerateProgram = async () => {
     if (!user) return;
     setRegenerating(true);
-
     try {
       const { data: profile } = await supabase
         .from('profiles')
         .select('bodyweight, height, training_experience, goal, schedule_days, session_minutes, gender, equipment_access')
-        .eq('id', user.id)
-        .single();
-
+        .eq('id', user.id).single();
       if (!profile) throw new Error('Profile not found');
 
-      const { data: yesExercises } = await supabase
-        .from('exercises')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'YES');
-
+      const { data: yesExercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
       if (!yesExercises || yesExercises.length === 0) throw new Error('No exercises with YES status');
 
-      const { data: wwData } = await supabase
-        .from('working_weights')
-        .select('exercise_id, weight, exercise:exercises(name)')
-        .eq('user_id', user.id);
-
+      const { data: wwData } = await supabase.from('working_weights').select('exercise_id, weight, exercise:exercises(name)').eq('user_id', user.id);
       const keyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
       const workingWeightMap = new Map<string, number>();
       if (wwData) {
@@ -119,30 +89,13 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
         }
       }
 
-      const { data: oldProgram } = await supabase
-        .from('programs')
-        .select('id, total_days, total_weeks')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const { count: totalSessions } = await supabase
-        .from('sessions')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-
-      const { count: programCount } = await supabase
-        .from('programs')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+      const { data: oldProgram } = await supabase.from('programs').select('id, total_days, total_weeks').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const { count: totalSessions } = await supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', user.id);
+      const { count: programCount } = await supabase.from('programs').select('id', { count: 'exact', head: true }).eq('user_id', user.id);
 
       const sessCount = totalSessions ?? 0;
       const hasHistory = sessCount > 0;
-
-      const prevCompleted = oldProgram
-        ? sessCount >= (oldProgram.total_days * (oldProgram.total_weeks ?? 12)) ? 1 : 0
-        : 0;
+      const prevCompleted = oldProgram ? sessCount >= (oldProgram.total_days * (oldProgram.total_weeks ?? 12)) ? 1 : 0 : 0;
       const cycleNumber = Math.max(1, (programCount ?? 1) - 1 + prevCompleted);
 
       const bw = Number(profile.bodyweight) || 75;
@@ -151,36 +104,14 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
 
       const isNoEq = profile.equipment_access === 'no_equipment';
       const program = isNoEq
-        ? generateNoEquipmentProgram(
-            deriveEngineProfile({
-              experience: profile.training_experience,
-              scheduleDays: profile.schedule_days,
-              sessionMinutes: profile.session_minutes ?? 60,
-              goal: profile.goal,
-            }),
-            yesExercises,
-            1
-          )
-        : generateProgram(
-            yesExercises,
-            profile.schedule_days,
-            bw,
-            profile.training_experience,
-            keyLifts.squat > 0 ? keyLifts : undefined,
-            profile.goal,
-            bmi,
-            profile.session_minutes ?? 60,
-            profile.gender ?? 'male',
-            cycleNumber
-          );
+        ? generateNoEquipmentProgram(deriveEngineProfile({ experience: profile.training_experience, scheduleDays: profile.schedule_days, sessionMinutes: profile.session_minutes ?? 60, goal: profile.goal }), yesExercises, 1)
+        : generateProgram(yesExercises, profile.schedule_days, bw, profile.training_experience, keyLifts.squat > 0 ? keyLifts : undefined, profile.goal, bmi, profile.session_minutes ?? 60, profile.gender ?? 'male', cycleNumber);
 
       if (hasHistory && !isNoEq) {
         for (const day of program.days) {
           for (const ex of day.exercises) {
             const actualWeight = workingWeightMap.get(ex.exercise_id);
-            if (actualWeight !== undefined) {
-              ex.weight = actualWeight;
-            }
+            if (actualWeight !== undefined) { ex.weight = actualWeight; }
             ex.is_calibration = false;
             ex.notes = '';
           }
@@ -192,35 +123,15 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
         await supabase.from('programs').delete().eq('id', oldProgram.id);
       }
 
-      const { data: savedProgram, error: pErr } = await supabase
-        .from('programs')
-        .insert({
-          user_id: user.id,
-          name: program.name,
-          split_type: program.split_type,
-          total_days: program.total_days,
-        })
-        .select()
-        .single();
-
+      const { data: savedProgram, error: pErr } = await supabase.from('programs').insert({ user_id: user.id, name: program.name, split_type: program.split_type, total_days: program.total_days }).select().single();
       if (pErr || !savedProgram) throw pErr;
 
-      const dayRows = program.days.map((d) => ({
-        program_id: savedProgram.id,
-        day_number: d.day_number,
-        day_name: d.day_name,
-        exercises: d.exercises,
-      }));
-      await supabase.from('program_days').insert(dayRows);
-
+      await supabase.from('program_days').insert(program.days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises })));
       localStorage.removeItem(sessionDraftKey(user.id));
-
       toast.success('Programa actualizado correctamente');
-    } catch (err) {
-      console.error('Program regeneration failed:', err);
+    } catch {
       toast.error('No se pudo regenerar el programa. Intenta de nuevo.');
     }
-
     setRegenerating(false);
   };
 
@@ -228,29 +139,17 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
     if (!user) return;
     setDeletingProgram(true);
     try {
-      const { data: prog } = await supabase
-        .from('programs')
-        .select('id')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
+      const { data: prog } = await supabase.from('programs').select('id').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (prog) {
         await supabase.from('program_days').delete().eq('program_id', prog.id);
         await supabase.from('programs').delete().eq('id', prog.id);
       }
-
-      if (!keepWeights) {
-        await supabase.from('working_weights').delete().eq('user_id', user.id);
-      }
-
+      if (!keepWeights) await supabase.from('working_weights').delete().eq('user_id', user.id);
       localStorage.removeItem(sessionDraftKey(user.id));
       setShowDeleteModal(false);
       toast.success('Programa eliminado.');
       onProgramDeleted();
-    } catch (err) {
-      console.error('Error eliminando programa:', err);
+    } catch {
       toast.error('Error al eliminar el programa.');
     }
     setDeletingProgram(false);
@@ -260,200 +159,131 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
     category: cat as MovementCategory,
     label,
     items: exercises.filter((e) => e.category === cat),
-  }));
-
-  const statusColor: Record<ExerciseStatus, string> = {
-    YES: 'bg-primary-container/30 text-primary border-primary-container/50',
-    SUB: 'bg-secondary-container/40 text-secondary border-secondary-container/60',
-    NO: 'bg-error-container/30 text-error border-error-container/50',
-  };
+  })).filter(g => g.items.length > 0);
 
   return (
-    <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6 max-w-2xl">
-      <motion.div variants={fadeUp} className="flex items-end justify-between">
+    <div className="forge-fade" style={{ display: 'flex', flexDirection: 'column', gap: 32, maxWidth: 800 }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16 }}>
         <div>
-          <h2 className="text-4xl font-headline font-extrabold tracking-tight mb-1 text-on-surface">Ajusta tu Programa</h2>
-          <p className="text-on-surface-variant font-body text-sm mb-1">Elige qué ejercicios incluir en tu programa. Toca el estado para cambiarlo:</p>
-          <ul className="text-on-surface-variant font-body text-sm space-y-0.5 mb-1">
-            <li><span className="text-primary font-bold">YES</span> — incluido en tu programa</li>
-            <li><span className="text-on-surface font-bold">SUB</span> — usado como sustituto si falta equipo</li>
-            <li><span className="text-on-surface-variant font-bold">NO</span> — excluido del programa</li>
-          </ul>
-          <p className="text-on-surface-variant font-body text-xs">Una vez que hagas tus cambios, toca <span className="font-bold text-primary">Actualizar Programa</span> al final de la lista para regenerar tu plan.</p>
+          <div className="uc" style={{ color: 'var(--muted)' }}>Ejercicios</div>
+          <h1 className="d-l" style={{ margin: 0, marginTop: 8 }}>Tu biblioteca</h1>
         </div>
         {exercises.length === 0 && !loading && (
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={seedLibrary}
-            disabled={seeding}
-            className="bg-primary-container text-on-primary-container font-headline font-bold px-5 py-2.5 rounded-xl text-sm tracking-tight transition-all disabled:opacity-50"
-          >
-            {seeding ? 'Cargando...' : 'Cargar Biblioteca'}
-          </motion.button>
+          <button onClick={seedLibrary} disabled={seeding} className="btn btn-ink" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {seeding ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Plus size={16}/>}
+            Cargar biblioteca
+          </button>
         )}
-      </motion.div>
+      </div>
+
+      {/* Status legend */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        {[
+          { s: 'YES', desc: 'Incluido en tu programa' },
+          { s: 'SUB', desc: 'Sustituto (si falta equipo)' },
+          { s: 'NO',  desc: 'Excluido del programa' },
+        ].map(x => (
+          <div key={x.s} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ background: STATUS_STYLES[x.s as ExerciseStatus].bg, color: STATUS_STYLES[x.s as ExerciseStatus].color, padding: '3px 10px', borderRadius: 999, fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600, border: '1px solid var(--rule)' }}>{x.s}</span>
+            <span className="caption" style={{ color: 'var(--muted)' }}>{x.desc}</span>
+          </div>
+        ))}
+      </div>
 
       {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => <div key={i} className="card-elevated rounded-xl h-16 animate-pulse" />)}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+          <Loader2 size={24} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
         </div>
       ) : exercises.length === 0 ? (
-        <NoExercisesEmpty />
+        <div style={{ border: '1px dashed var(--rule)', borderRadius: 12, padding: 48, textAlign: 'center' }}>
+          <div className="body" style={{ color: 'var(--muted)' }}>No hay ejercicios en tu biblioteca.</div>
+        </div>
       ) : (
-        <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-4">
-          {grouped.filter(g => g.items.length > 0).map((group) => (
-            <motion.div key={group.category} variants={itemVariants} className="card-elevated rounded-xl overflow-hidden">
-              <button
-                onClick={() => setExpanded(expanded === group.category ? null : group.category)}
-                className="w-full flex items-center justify-between p-5 text-left hover:bg-surface-container-high/50 transition-colors"
-              >
-                <span className="font-headline font-bold text-lg tracking-tight text-on-surface">{group.label}</span>
-                <div className="flex items-center gap-3">
-                  <span className="text-on-surface-variant text-sm font-body">{group.items.length}</span>
-                  <motion.div animate={{ rotate: expanded === group.category ? 90 : 0 }} transition={{ duration: 0.2 }}>
-                    <ChevronRight size={16} className="text-on-surface-variant/40" />
-                  </motion.div>
-                </div>
-              </button>
-
-              <AnimatePresence>
-                {expanded === group.category && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-5 pb-4 space-y-1">
-                      {group.items.map((ex) => (
-                        <div key={ex.id} className="flex items-center justify-between py-2.5 px-3 -mx-1 rounded-lg hover:bg-surface-container-high/40 transition-colors">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-on-surface font-body text-sm truncate">{ex.name}</span>
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
+          {grouped.map((group, gi) => {
+            const isOpen = expanded === group.category;
+            return (
+              <div key={group.category}>
+                <button
+                  onClick={() => setExpanded(isOpen ? null : group.category)}
+                  style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderTop: gi === 0 ? 'none' : '1px solid var(--rule)', background: 'transparent', border: 'none', borderTopColor: 'var(--rule)', borderTopWidth: gi === 0 ? 0 : 1, borderTopStyle: 'solid', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)', textAlign: 'left' }}
+                >
+                  <span className="d-s" style={{ fontWeight: 600 }}>{group.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span className="mono caption" style={{ color: 'var(--muted)' }}>{group.items.length}</span>
+                    <ChevronDown size={16} style={{ color: 'var(--muted)', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+                  </div>
+                </button>
+                {isOpen && (
+                  <div style={{ borderTop: '1px solid var(--rule)', background: 'var(--paper-2)' }}>
+                    {group.items.map((ex, ei) => {
+                      const st = STATUS_STYLES[ex.status];
+                      return (
+                        <div key={ex.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderTop: ei === 0 ? 'none' : '1px solid var(--rule)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="body" style={{ fontWeight: 500 }}>{ex.name}</span>
                             {getCatalogEntry(ex.name) && (
-                              <button
-                                onClick={() => setDetailExercise(ex.name)}
-                                aria-label={`Ver instrucciones de ${ex.name}`}
-                                className="shrink-0 p-0.5 rounded-full text-primary/40 hover:text-primary transition-colors"
-                              >
-                                <Info size={14} />
+                              <button onClick={() => setDetailExercise(ex.name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2 }}>
+                                <Info size={14}/>
                               </button>
                             )}
                           </div>
                           <button
                             onClick={() => toggleStatus(ex)}
-                            aria-label={`Estado de ${ex.name}: ${ex.status}. Toca para cambiar`}
-                            className={`shrink-0 text-xs font-headline font-bold px-3 py-1 rounded-full border ${statusColor[ex.status]} transition-all hover:scale-105 active:scale-95`}
+                            style={{ background: st.bg, color: st.color, border: '1px solid var(--rule)', padding: '4px 12px', borderRadius: 999, fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'background .15s' }}
                           >
                             {ex.status}
                           </button>
                         </div>
-                      ))}
-                    </div>
-                  </motion.div>
+                      );
+                    })}
+                  </div>
                 )}
-              </AnimatePresence>
-            </motion.div>
-          ))}
-        </motion.div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
-      {/* Regenerate Program Button */}
       {!loading && exercises.length > 0 && (
-        <motion.div variants={fadeUp} className="pt-4 pb-8">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={regenerateProgram}
-            disabled={regenerating}
-            className="w-full bg-primary-container text-on-primary-container font-headline font-bold py-4 rounded-full text-lg tracking-tight flex items-center justify-center gap-3 shadow-lg shadow-primary-container/20 disabled:opacity-40"
-          >
-            {regenerating ? (
-              <><Loader2 size={18} className="animate-spin" /> Regenerando Programa...</>
-            ) : (
-              <><RefreshCw size={18} /> Actualizar Programa</>
-            )}
-          </motion.button>
-          <p className="text-on-surface-variant text-xs font-body text-center mt-2">
-            Regenera tu programa de 12 semanas con los ejercicios activos actuales.
-          </p>
-
-          {/* Delete Program Button */}
-          <motion.button
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowDeleteModal(true)}
-            disabled={deletingProgram}
-            className="w-full mt-3 font-headline font-bold py-3.5 rounded-full text-base tracking-tight flex items-center justify-center gap-2 transition-all border border-error/30 text-error hover:bg-error/8 active:scale-95 disabled:opacity-40"
-          >
-            <Trash2 size={16} />
-            Eliminar Programa Actual
-          </motion.button>
-        </motion.div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 32 }}>
+          <button onClick={regenerateProgram} disabled={regenerating} className="btn btn-ink btn-lg" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {regenerating ? <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite' }} /> : <RefreshCw size={18}/>}
+            {regenerating ? 'Regenerando...' : 'Actualizar programa'}
+          </button>
+          <button onClick={() => setShowDeleteModal(true)} disabled={deletingProgram} className="btn btn-ghost btn-lg" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 8, color: '#ba1a1a', borderColor: 'rgba(186,26,26,0.3)' }}>
+            <Trash2 size={16}/> Eliminar programa actual
+          </button>
+        </div>
       )}
 
-      {/* Delete Program Modal */}
       <Modal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
-        title="Eliminar Programa"
-        description="¿Qué deseas hacer con tu historial de pesos registrados?"
-        icon={<AlertTriangle size={20} className="text-error" />}
+        title="Eliminar programa"
+        description="¿Qué deseas hacer con tu historial de pesos?"
         size="sm"
         actions={
-          <button
-            onClick={() => setShowDeleteModal(false)}
-            className="w-full py-2.5 rounded-full text-on-surface-variant font-body text-sm hover:bg-surface-container-high/50 transition-colors"
-          >
-            Cancelar
-          </button>
+          <button onClick={() => setShowDeleteModal(false)} className="btn btn-ghost">Cancelar</button>
         }
       >
-        <div className="space-y-3">
-          <button
-            onClick={() => deleteProgram(true)}
-            disabled={deletingProgram}
-            className="w-full text-left p-4 rounded-xl border border-primary/20 bg-primary-container/10 hover:bg-primary-container/20 transition-colors group disabled:opacity-50"
-          >
-            <p className="font-headline font-bold text-on-surface text-sm mb-0.5 group-hover:text-primary transition-colors">
-              Conservar pesos históricos
-            </p>
-            <p className="text-on-surface-variant text-xs font-body">
-              El nuevo programa arrancará con tus cargas actuales. Recomendado si continúas entrenando.
-            </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button onClick={() => deleteProgram(true)} disabled={deletingProgram} className="btn btn-ink btn-sq" style={{ justifyContent: 'flex-start', borderRadius: 8, padding: '16px 20px', textAlign: 'left', display: 'block' }}>
+            <div style={{ fontWeight: 700 }}>Conservar pesos históricos</div>
+            <div style={{ fontSize: 13, opacity: .7, marginTop: 4, fontWeight: 400 }}>Recomendado si continúas entrenando.</div>
           </button>
-
-          <button
-            onClick={() => deleteProgram(false)}
-            disabled={deletingProgram}
-            className="w-full text-left p-4 rounded-xl border border-error/20 bg-error-container/10 hover:bg-error-container/20 transition-colors group disabled:opacity-50"
-          >
-            <p className="font-headline font-bold text-error text-sm mb-0.5">
-              Eliminar todo (incluyendo pesos)
-            </p>
-            <p className="text-on-surface-variant text-xs font-body">
-              Reinicio completo. El siguiente programa estimará pesos desde cero.
-            </p>
+          <button onClick={() => deleteProgram(false)} disabled={deletingProgram} style={{ background: 'transparent', border: '1px solid rgba(186,26,26,0.3)', color: '#ba1a1a', padding: '16px 20px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--sans)', textAlign: 'left' }}>
+            <div style={{ fontWeight: 700 }}>Eliminar todo (incluyendo pesos)</div>
+            <div style={{ fontSize: 13, opacity: .7, marginTop: 4, fontWeight: 400 }}>Reinicio completo desde cero.</div>
           </button>
-
-          {deletingProgram && (
-            <div className="flex items-center justify-center gap-2 mt-3 text-on-surface-variant/60 text-xs">
-              <Loader2 size={14} className="animate-spin" />
-              Eliminando...
-            </div>
-          )}
+          {deletingProgram && <div className="caption" style={{ textAlign: 'center', color: 'var(--muted)' }}>Eliminando...</div>}
         </div>
       </Modal>
 
-      {/* Exercise Detail Modal */}
-      {detailExercise && (
-        <ExerciseDetailModal
-          exerciseName={detailExercise}
-          onClose={() => setDetailExercise(null)}
-        />
-      )}
-
-    </motion.div>
+      {detailExercise && <ExerciseDetailModal exerciseName={detailExercise} onClose={() => setDetailExercise(null)} />}
+    </div>
   );
 }
