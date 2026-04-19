@@ -7,4 +7,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('⚠️ Supabase environment variables missing. Database interactions will fail.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(
+  supabaseUrl || 'http://localhost:54321',
+  supabaseAnonKey || 'placeholder'
+);

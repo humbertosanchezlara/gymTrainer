@@ -1,13 +1,17 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, ArrowRight, Loader2, ArrowLeft } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 
 type Mode = 'login' | 'signup' | 'forgot';
 
-export default function AuthScreen() {
+interface AuthScreenProps {
+  initialMode?: 'login' | 'signup';
+  onBack?: () => void;
+}
+
+export default function AuthScreen({ initialMode = 'login', onBack }: AuthScreenProps) {
   const { signIn, signUp, resetPassword } = useAuth();
-  const [mode, setMode] = useState<Mode>('login');
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,250 +47,123 @@ export default function AuthScreen() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 bg-surface relative overflow-hidden">
-      {/* Ambient Background */}
-      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-primary-container/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-5%] right-[-5%] w-[40%] h-[40%] bg-secondary-container/10 rounded-full blur-[100px] pointer-events-none" />
-
-      <motion.div
-        initial={{ opacity: 0, y: 40 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-        className="w-full max-w-md relative z-10"
-      >
-        {/* Brand */}
-        <div className="text-center mb-12">
-          <motion.h1
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.7 }}
-            className="font-headline font-extrabold text-5xl md:text-6xl tracking-tighter text-on-surface"
-          >
-            FIT APP
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5, duration: 0.7 }}
-            className="text-on-surface-variant font-medium tracking-tight text-sm md:text-base opacity-80 mt-3"
-          >
-            Programación basada en evidencia. Sin relleno.
-          </motion.p>
+    <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '1.1fr 1fr', background: 'var(--paper)' }}>
+      {/* Left: brand panel */}
+      <aside style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '40px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', minHeight: '100vh' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {onBack ? (
+            <button onClick={onBack} className="btn btn-ghost" style={{ color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.2)' }}>← Volver</button>
+          ) : <div />}
+          <span className="mono caption" style={{ color: 'rgba(241,237,228,0.4)' }}>Forge / Auth</span>
         </div>
 
-        {/* Form Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.6 }}
-          className="glass-panel p-8 md:p-10 rounded-xl shadow-2xl shadow-on-surface/5"
-        >
-          {mode === 'forgot' ? (
-            /* ── Forgot password form ── */
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-1 mb-2">
-                <h2 className="font-headline font-bold text-xl text-on-surface">
-                  Recuperar contraseña
-                </h2>
-                <p className="text-on-surface-variant text-sm font-body">
-                  Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.
-                </p>
-              </div>
+        <div>
+          <div className="uc" style={{ opacity: .6, marginBottom: 24 }}>
+            {mode === 'signup' ? 'Crea tu cuenta' : 'Bienvenido de vuelta'}
+          </div>
+          <h1 className="d-hero" style={{ margin: 0, color: 'var(--paper)' }}>
+            {mode === 'signup'
+              ? <><span>Vamos a</span><br/><span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>construir</span> algo.</>
+              : <><span>Ya está</span><br/><span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>todo listo</span>.</>}
+          </h1>
+        </div>
 
-              {/* Email */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">
-                  Correo Electrónico
-                </label>
-                <div className="relative group">
-                  <Mail
-                    size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/50 group-focus-within:text-primary transition-colors duration-300"
-                  />
-                  <input
-                    type="email"
-                    placeholder="tu@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="w-full pl-12 pr-4 py-4 bg-surface-container-low rounded-lg border-none focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest transition-all outline-none text-on-surface placeholder:text-on-surface-variant/30 font-body"
-                  />
-                </div>
-              </div>
+        <div style={{ borderTop: '1px solid rgba(241,237,228,0.15)', paddingTop: 24, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+          {[
+            { v: '12·', label: 'Semanas' },
+            { v: '4·',  label: 'Bloques' },
+            { v: 'RPE', label: 'Progresión' },
+          ].map(x => (
+            <div key={x.label}>
+              <div className="mono" style={{ fontSize: 28, fontWeight: 600 }}>{x.v}</div>
+              <div className="caption mono uc" style={{ marginTop: 6 }}>{x.label}</div>
+            </div>
+          ))}
+        </div>
+      </aside>
 
-              {/* Error / Success */}
-              <AnimatePresence mode="wait">
-                {error && (
-                  <motion.p
-                    key="error"
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="text-error text-sm font-body font-medium"
-                  >
-                    {error}
-                  </motion.p>
-                )}
-                {success && (
-                  <motion.p
-                    key="success"
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="text-primary text-sm font-body font-medium"
-                  >
-                    {success}
-                  </motion.p>
-                )}
-              </AnimatePresence>
+      {/* Right: form */}
+      <main style={{ padding: '40px', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'var(--paper)' }}>
+        <div style={{ maxWidth: 440, margin: '0 auto', width: '100%' }}>
+          <div className="uc" style={{ marginBottom: 24, color: 'var(--muted)' }}>
+            {mode === 'forgot' ? 'Recuperar acceso' : mode === 'signup' ? 'Nuevo en Forge' : 'Iniciar sesión'}
+          </div>
+          <h2 className="d-l" style={{ margin: 0, marginBottom: 40 }}>
+            {mode === 'forgot' ? 'Tu correo.' : mode === 'signup' ? 'Tu correo.' : 'Adelante.'}
+          </h2>
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-5 bg-primary-container text-on-primary-container font-headline font-bold text-lg rounded-full shadow-lg shadow-primary-container/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 group mt-4 disabled:opacity-50"
-              >
-                {loading ? (
-                  <Loader2 size={20} className="animate-spin" />
-                ) : (
-                  <>
-                    Enviar enlace de recuperación
-                    <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
-              </button>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <label>
+              <div className="uc" style={{ marginBottom: 8, color: 'var(--muted)' }}>Correo</div>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="tu@correo.com"
+                required
+                className="forge-field"
+              />
+            </label>
 
-              {/* Back to login */}
-              <button
-                type="button"
-                onClick={() => switchMode('login')}
-                className="w-full flex items-center justify-center gap-1 text-on-surface-variant font-medium text-sm hover:text-primary transition-colors mt-2"
-              >
-                <ArrowLeft size={15} />
-                Volver a iniciar sesión
-              </button>
-            </form>
-          ) : (
-            /* ── Login / Signup form ── */
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Email */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">
-                  Correo Electrónico
-                </label>
-                <div className="relative group">
-                  <Mail
-                    size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/50 group-focus-within:text-primary transition-colors duration-300"
-                  />
-                  <input
-                    type="email"
-                    placeholder="tu@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="w-full pl-12 pr-4 py-4 bg-surface-container-low rounded-lg border-none focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest transition-all outline-none text-on-surface placeholder:text-on-surface-variant/30 font-body"
-                  />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">
-                  Contraseña
-                </label>
-                <div className="relative group">
-                  <Lock
-                    size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/50 group-focus-within:text-primary transition-colors duration-300"
-                  />
-                  <input
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    className="w-full pl-12 pr-4 py-4 bg-surface-container-low rounded-lg border-none focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest transition-all outline-none text-on-surface placeholder:text-on-surface-variant/30 font-body"
-                  />
-                </div>
-                {/* Forgot password link — only in login mode */}
-                {mode === 'login' && (
-                  <div className="flex justify-end mt-1">
-                    <button
-                      type="button"
-                      onClick={() => switchMode('forgot')}
-                      className="text-xs text-on-surface-variant hover:text-primary transition-colors font-medium underline-offset-2 hover:underline"
-                    >
-                      ¿Olvidaste tu contraseña?
+            {mode !== 'forgot' && (
+              <label>
+                <div className="uc" style={{ marginBottom: 8, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Contraseña</span>
+                  {mode === 'login' && (
+                    <button type="button" onClick={() => switchMode('forgot')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', font: 'inherit', textDecoration: 'underline', fontSize: 11, letterSpacing: '0.08em', fontWeight: 600, textTransform: 'uppercase' }}>
+                      Olvidé
                     </button>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  className="forge-field"
+                />
+              </label>
+            )}
 
-              {/* Error / Success */}
-              <AnimatePresence mode="wait">
-                {error && (
-                  <motion.p
-                    key="error"
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="text-error text-sm font-body font-medium"
-                  >
-                    {error}
-                  </motion.p>
-                )}
-                {success && (
-                  <motion.p
-                    key="success"
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="text-primary text-sm font-body font-medium"
-                  >
-                    {success}
-                  </motion.p>
-                )}
-              </AnimatePresence>
+            {error && (
+              <p style={{ margin: 0, color: '#ba1a1a', fontSize: 13 }}>{error}</p>
+            )}
+            {success && (
+              <p style={{ margin: 0, color: 'var(--ok)', fontSize: 13 }}>{success}</p>
+            )}
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-5 bg-primary-container text-on-primary-container font-headline font-bold text-lg rounded-full shadow-lg shadow-primary-container/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 group mt-4 disabled:opacity-50"
-              >
-                {loading ? (
-                  <Loader2 size={20} className="animate-spin" />
-                ) : (
-                  <>
-                    {mode === 'signup' ? 'Crear Cuenta' : 'Iniciar Sesión'}
-                    <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
-              </button>
-            </form>
-          )}
-        </motion.div>
-
-        {/* Toggle login/signup — hidden in forgot mode */}
-        {mode !== 'forgot' && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.9 }}
-            className="mt-10 text-center text-on-surface-variant font-medium text-sm"
-          >
-            {mode === 'signup' ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?'}{' '}
-            <button
-              onClick={() => switchMode(mode === 'signup' ? 'login' : 'signup')}
-              className="text-primary font-bold hover:underline underline-offset-4 ml-1"
-            >
-              {mode === 'signup' ? 'Inicia sesión' : 'Regístrate'}
+            <button type="submit" disabled={loading} className="btn btn-ink btn-lg" style={{ marginTop: 16, justifyContent: 'space-between', opacity: loading ? .6 : 1 }}>
+              {loading
+                ? <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite' }} />
+                : <>{mode === 'signup' ? 'Crear cuenta' : mode === 'forgot' ? 'Enviar enlace' : 'Entrar'} <ArrowRight size={18}/></>}
             </button>
-          </motion.p>
-        )}
-      </motion.div>
+          </form>
+
+          <div style={{ borderTop: '1px solid var(--rule)', marginTop: 40, paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {mode === 'forgot' ? (
+              <>
+                <span className="body-s" style={{ color: 'var(--muted)' }}>¿Recuerdas tu contraseña?</span>
+                <button onClick={() => switchMode('login')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', font: 'inherit', fontWeight: 600 }}>
+                  Entrar →
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="body-s" style={{ color: 'var(--muted)' }}>
+                  {mode === 'signup' ? '¿Ya tienes cuenta?' : '¿Aún no tienes cuenta?'}
+                </span>
+                <button onClick={() => switchMode(mode === 'signup' ? 'login' : 'signup')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', font: 'inherit', fontWeight: 600 }}>
+                  {mode === 'signup' ? 'Entrar' : 'Crear cuenta'} →
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </main>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

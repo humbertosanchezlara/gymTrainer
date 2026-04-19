@@ -1,30 +1,17 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import type { Session, SessionLog, WorkingWeight, Exercise } from '../../types';
-import { ProgressTableSkeleton } from '../skeletons';
-import { NoWeightsEmpty, NoSessionsEmpty } from '../EmptyState';
-import { ChevronDown } from 'lucide-react';
-
-// ─── Animation variants ───────────────────────────────────
-const stagger = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.15 } },
-};
-const fadeUp = {
-  hidden: { y: 18, opacity: 0 },
-  show: { y: 0, opacity: 1, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } },
-};
+import { Loader2, ChevronDown } from 'lucide-react';
 
 type SessionWithLogs = Session & { logs: (SessionLog & { exercise: Exercise })[] };
 
-// ─── Component ────────────────────────────────────────────
 export default function ProgressView() {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<SessionWithLogs[]>([]);
   const [weights, setWeights] = useState<WorkingWeight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -38,92 +25,123 @@ export default function ProgressView() {
     });
   }, [user]);
 
-  return (
-    <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-8 max-w-3xl">
-      <motion.div variants={fadeUp}>
-        <h2 className="text-4xl font-headline font-extrabold tracking-tight mb-1 text-on-surface">Progreso</h2>
-        <p className="text-on-surface-variant font-body text-sm">Tu historial de entrenamiento y pesos de trabajo actuales</p>
-      </motion.div>
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400 }}>
+        <Loader2 size={24} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
-      {/* Current Working Weights */}
-      <motion.div variants={fadeUp} className="card-elevated rounded-xl p-6 md:p-8">
-        <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-5">Pesos de Trabajo Actuales</h3>
-        {loading ? (
-          <ProgressTableSkeleton />
-        ) : weights.length === 0 ? (
-          <NoWeightsEmpty />
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {weights.map((w) => (
-              <div key={w.id} className="bg-surface-container-high/50 rounded-xl p-4 border border-outline-variant/10">
-                <span className="text-on-surface-variant text-[10px] font-bold tracking-widest uppercase block truncate">
-                  {(w.exercise as unknown as { name?: string })?.name}
-                </span>
-                <div className="mt-1">
-                  <span className="text-2xl font-headline font-extrabold text-on-surface">{w.weight}</span>
-                  <span className="text-primary font-headline font-bold text-sm ml-1">kg</span>
+  return (
+    <div className="forge-fade" style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16 }}>
+        <div>
+          <div className="uc" style={{ color: 'var(--muted)' }}>Progreso</div>
+          <h1 className="d-l" style={{ margin: 0, marginTop: 8 }}>
+            {sessions.length > 0 ? `${sessions.length} sesiones` : 'Tu historial'}
+          </h1>
+        </div>
+        {weights.length > 0 && (
+          <div className="mono caption" style={{ textAlign: 'right' }}>
+            {weights.length} pesos de trabajo actuales
+          </div>
+        )}
+      </div>
+
+      {/* Summary stats */}
+      {sessions.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
+          {[
+            { k: 'Sesiones', v: String(sessions.length), sub: 'registradas' },
+            { k: 'Última sesión', v: sessions.length > 0 ? new Date(sessions[0].date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '—', sub: sessions[0]?.name ?? '' },
+            { k: 'Pesos activos', v: String(weights.length), sub: 'ejercicios' },
+            { k: 'Bloque actual', v: sessions[0]?.block_num ? `B${sessions[0].block_num}` : '—', sub: sessions[0]?.week_num ? `Semana ${sessions[0].week_num}` : '' },
+          ].map((m, i) => (
+            <div key={m.k} style={{ padding: 24, borderLeft: i === 0 ? 'none' : '1px solid var(--rule)' }}>
+              <div className="uc" style={{ color: 'var(--muted)' }}>{m.k}</div>
+              <div className="d-l" style={{ marginTop: 8, fontWeight: 600 }}>{m.v}</div>
+              <div className="caption" style={{ color: 'var(--muted)', marginTop: 4 }}>{m.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Working weights */}
+      {weights.length > 0 && (
+        <div>
+          <div className="uc" style={{ marginBottom: 16, color: 'var(--muted)' }}>Pesos de trabajo actuales</div>
+          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
+            {weights.map((w, i) => (
+              <div key={w.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 16, padding: '20px 24px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid var(--rule)' }}>
+                <div className="d-s" style={{ fontWeight: 600 }}>
+                  {(w.exercise as unknown as { name?: string })?.name ?? '—'}
+                </div>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 600 }}>
+                  {w.weight}<span style={{ fontSize: 13, color: 'var(--muted)', marginLeft: 4 }}>kg</span>
                 </div>
               </div>
             ))}
           </div>
-        )}
-      </motion.div>
+        </div>
+      )}
 
-      {/* Session History */}
-      <motion.div variants={fadeUp} className="card-elevated rounded-xl p-6 md:p-8">
-        <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-5">Historial de Sesiones</h3>
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => <div key={i} className="h-20 bg-surface-container-high/50 rounded-xl animate-pulse" />)}
-          </div>
-        ) : sessions.length === 0 ? (
-          <NoSessionsEmpty />
-        ) : (
-          <div className="space-y-3">
-            {sessions.map((s) => (
-              <details key={s.id} className="group bg-surface-container-high/30 rounded-xl border border-outline-variant/10 overflow-hidden">
-                <summary className="flex items-center justify-between p-4 cursor-pointer hover:bg-surface-container-high/50 transition-colors list-none">
-                  <div className="flex items-center gap-4">
-                    <span className="text-primary font-headline font-bold text-sm">
-                      {s.block_num ? `B${s.block_num}W${s.week_num}` : '—'}
+      {/* Session history */}
+      {sessions.length === 0 ? (
+        <div style={{ border: '1px dashed var(--rule)', borderRadius: 12, padding: 48, textAlign: 'center' }}>
+          <div className="body" style={{ color: 'var(--muted)' }}>Sin sesiones registradas todavía.</div>
+        </div>
+      ) : (
+        <div>
+          <div className="uc" style={{ margin: '0 0 16px', color: 'var(--muted)' }}>Historial de sesiones</div>
+          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
+            {sessions.map((s, i) => {
+              const isOpen = expandedSession === s.id;
+              return (
+                <div key={s.id}>
+                  <button
+                    onClick={() => setExpandedSession(isOpen ? null : s.id)}
+                    style={{ width: '100%', display: 'grid', gridTemplateColumns: '80px 1fr 120px 24px', gap: 16, padding: '20px 24px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', background: 'transparent', border: 'none', borderTopColor: 'var(--rule)', borderTopWidth: i === 0 ? 0 : 1, borderTopStyle: 'solid', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)', textAlign: 'left' }}
+                  >
+                    <span className="mono caption" style={{ color: 'var(--muted)' }}>
+                      {new Date(s.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
                     </span>
-                    <span className="text-on-surface font-body">{s.name}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-on-surface-variant text-xs">{new Date(s.date).toLocaleDateString()}</span>
-                    <ChevronDown size={14} className="text-on-surface-variant/30 group-open:rotate-180 transition-transform duration-200" />
-                  </div>
-                </summary>
-                {s.logs && s.logs.length > 0 && (
-                  <div className="px-4 pb-4 pt-1 border-t border-outline-variant/10">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest">
-                          <th className="text-left py-2 font-normal">Ejercicio</th>
-                          <th className="text-center py-2 font-normal">Series × Reps</th>
-                          <th className="text-center py-2 font-normal">Peso</th>
-                          <th className="text-center py-2 font-normal">RPE</th>
-                        </tr>
-                      </thead>
-                      <tbody className="text-on-surface font-body">
-                        {s.logs.map((log) => (
-                          <tr key={log.id} className="border-t border-outline-variant/8">
-                            <td className="py-2">{(log.exercise as unknown as { name?: string })?.name ?? '—'}</td>
-                            <td className="text-center py-2">{log.sets} × {log.reps_per_set}</td>
-                            <td className="text-center py-2">{log.weight}<span className="text-primary ml-0.5 text-xs font-bold">kg</span></td>
-                            <td className="text-center py-2 text-on-surface-variant">{log.rpe ?? '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {s.notes && <p className="text-on-surface-variant text-xs mt-3 italic">{s.notes}</p>}
-                  </div>
-                )}
-              </details>
-            ))}
+                    <span className="d-s" style={{ fontWeight: 600 }}>{s.name}</span>
+                    <span className="mono caption" style={{ color: 'var(--muted)' }}>
+                      {s.block_num ? `B${s.block_num} Sem ${s.week_num}` : '—'}
+                    </span>
+                    <ChevronDown size={16} style={{ color: 'var(--muted)', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+                  </button>
+
+                  {isOpen && s.logs && s.logs.length > 0 && (
+                    <div style={{ borderTop: '1px solid var(--rule)', background: 'var(--paper-2)' }}>
+                      {s.logs.map((log, li) => (
+                        <div key={log.id} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px 60px', gap: 12, padding: '14px 24px', borderTop: li === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
+                          <div style={{ fontSize: 14, fontWeight: 500 }}>
+                            {(log.exercise as unknown as { name?: string })?.name ?? '—'}
+                          </div>
+                          <div className="mono" style={{ fontSize: 13 }}>{log.sets} × {log.reps_per_set}</div>
+                          <div className="mono" style={{ fontSize: 13 }}>{log.weight} kg</div>
+                          <div className="mono caption" style={{ color: 'var(--muted)' }}>RPE {log.rpe ?? '—'}</div>
+                        </div>
+                      ))}
+                      {s.notes && (
+                        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--rule)' }}>
+                          <span className="body-s" style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{s.notes}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        )}
-      </motion.div>
-    </motion.div>
+        </div>
+      )}
+    </div>
   );
 }

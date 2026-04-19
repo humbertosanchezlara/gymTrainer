@@ -1,25 +1,11 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/noEquipmentAdapter';
-import { DashboardSkeleton } from '../skeletons';
-import {
-  Dumbbell, RefreshCw, Loader2, Send, Sparkles, Check, Plane
-} from 'lucide-react';
+import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
 import type { Tab } from '../MainShell';
-
-// ─── Animation variants ───────────────────────────────────
-const stagger = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.15 } },
-};
-const fadeUp = {
-  hidden: { y: 18, opacity: 0 },
-  show: { y: 0, opacity: 1, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } },
-};
 
 // ─── Types ────────────────────────────────────────────────
 interface SessionAdjustment {
@@ -45,6 +31,19 @@ export interface SessionLogEntry {
   target_rpe?: number;
 }
 
+interface ProgramDayExercise {
+  exercise_id?: string;
+  name?: string;
+  sets?: number;
+  reps_min?: number;
+  reps_max?: number;
+  weight?: number;
+  rpe?: number;
+  role?: string;
+  category?: string;
+  notes?: string;
+}
+
 // ─── Smart Adjustment Parser ─────────────────────────────
 function parseAdjustmentRequest(text: string): SessionAdjustment[] {
   const lower = text.toLowerCase();
@@ -61,9 +60,7 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
   if (hasFatigue || lowSleep) {
     const severity = lowSleep && parseInt(sleepMatch![1]) <= 4 ? 0.75 : 0.80;
     adjustments.push({
-      type: 'deload',
-      weightScale: severity,
-      rpeDelta: -1.5,
+      type: 'deload', weightScale: severity, rpeDelta: -1.5,
       reason: 'Fatiga detectada',
       details: lowSleep
         ? `Descanso insuficiente (${sleepMatch![1]}h). Peso reducido ${Math.round((1 - severity) * 100)}%, RPE -1.5`
@@ -73,13 +70,9 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
 
   const painKeywords = ['dolor', 'duele', 'molestia', 'lesión', 'lesion', 'lastimé', 'lastime',
     'inflamado', 'inflamada', 'pinzamiento', 'contractura'];
-  const hasPain = painKeywords.some(k => lower.includes(k));
-
-  if (hasPain) {
+  if (painKeywords.some(k => lower.includes(k))) {
     adjustments.push({
-      type: 'deload',
-      weightScale: 0.70,
-      rpeDelta: -2,
+      type: 'deload', weightScale: 0.70, rpeDelta: -2,
       reason: 'Dolor / molestia reportada',
       details: 'Peso reducido 30%, RPE -2. Presta atención a la técnica y detente si el dolor persiste.',
     });
@@ -88,14 +81,11 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
   const timeMatch = lower.match(/(\d+)\s*min/);
   const timeKeywords = ['poco tiempo', 'rápido', 'rapido', 'corta', 'prisa', 'apurado', 'apurada',
     'menos tiempo', 'acortar', 'reducir tiempo'];
-  const hasTimeConstraint = timeKeywords.some(k => lower.includes(k)) || timeMatch;
-
-  if (hasTimeConstraint) {
+  if (timeKeywords.some(k => lower.includes(k)) || timeMatch) {
     const minutes = timeMatch ? parseInt(timeMatch[1]) : 30;
     const maxEx = Math.max(3, Math.floor((minutes - 5) / 7));
     adjustments.push({
-      type: 'reduce_time',
-      maxExercises: maxEx,
+      type: 'reduce_time', maxExercises: maxEx,
       reason: 'Sesión reducida',
       details: timeMatch
         ? `Ajustada a ${minutes} min (~${maxEx} ejercicios). Se priorizan compuestos.`
@@ -103,11 +93,7 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
     });
   }
 
-  const equipKeywords = ['no tengo', 'sin barra', 'sin mancuerna', 'no hay', 'falta equipo',
-    'equipo', 'máquina', 'maquina', 'rota', 'ocupada', 'ocupado'];
-  const hasEquipIssue = equipKeywords.some(k => lower.includes(k));
-
-  if (hasEquipIssue) {
+  if (['no tengo', 'sin barra', 'sin mancuerna', 'no hay', 'falta equipo', 'equipo', 'máquina', 'maquina', 'rota', 'ocupada', 'ocupado'].some(k => lower.includes(k))) {
     adjustments.push({
       type: 'swap_exercise',
       reason: 'Problema de equipamiento',
@@ -126,9 +112,8 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
       const target = m[1].trim().replace(/[.,!?]+$/, '');
       if (target.length >= 3) {
         adjustments.push({
-          type: 'swap_specific',
-          targetExerciseName: target,
-          reason: `Cambio de ejercicio`,
+          type: 'swap_specific', targetExerciseName: target,
+          reason: 'Cambio de ejercicio',
           details: `Se buscará un sustituto para "${target}" dentro de la misma categoría muscular.`,
         });
         break;
@@ -138,9 +123,7 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
 
   if (adjustments.length === 0) {
     adjustments.push({
-      type: 'general',
-      weightScale: 0.90,
-      rpeDelta: -1,
+      type: 'general', weightScale: 0.90, rpeDelta: -1,
       reason: 'Ajuste general',
       details: 'Se aplicó una reducción moderada: peso -10%, RPE -1.',
     });
@@ -152,10 +135,18 @@ function parseAdjustmentRequest(text: string): SessionAdjustment[] {
 // ─── Component ────────────────────────────────────────────
 interface DashboardViewProps {
   onNavigate: (t: Tab) => void;
+  onStartSession: () => void;
   onStartTravel: (d: SessionLogEntry[]) => void;
 }
 
-export default function DashboardView({ onNavigate, onStartTravel }: DashboardViewProps) {
+function getBlockInfo(week: number): string {
+  if (week <= 4) return 'Volumen';
+  if (week <= 8) return 'Intensidad';
+  if (week <= 11) return 'Pico';
+  return 'Descarga';
+}
+
+export default function DashboardView({ onNavigate, onStartSession, onStartTravel }: DashboardViewProps) {
   const { user } = useAuth();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -164,10 +155,10 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
   const [nextDayNum, setNextDayNum] = useState<number | null>(null);
   const [programComplete, setProgramComplete] = useState(false);
   const [completedWeeks, setCompletedWeeks] = useState(0);
+  const [todayExercises, setTodayExercises] = useState<ProgramDayExercise[]>([]);
 
   const [adjustInput, setAdjustInput] = useState('');
   const [adjusting, setAdjusting] = useState(false);
-  const [adjustResult, setAdjustResult] = useState<SessionAdjustment[] | null>(null);
 
   const [showTravelSetup, setShowTravelSetup] = useState(false);
   const [travelDays, setTravelDays] = useState(3);
@@ -206,11 +197,15 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
         setNextDayNum(dayNum);
         const { data: dayData } = await supabase
           .from('program_days')
-          .select('day_name')
+          .select('day_name, exercises')
           .eq('program_id', pRes.data.id)
           .eq('day_number', dayNum)
           .maybeSingle();
-        if (dayData) setNextDayName(dayData.day_name);
+
+        if (dayData) {
+          setNextDayName(dayData.day_name);
+          if (dayData.exercises) setTodayExercises(dayData.exercises as ProgramDayExercise[]);
+        }
       }
 
       setLoading(false);
@@ -220,43 +215,27 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
   const handleAdjust = async () => {
     if (!adjustInput.trim() || !user) return;
     setAdjusting(true);
-    setAdjustResult(null);
-
     try {
       const adjustments = parseAdjustmentRequest(adjustInput);
-
       const { data: prog } = await supabase
-        .from('programs')
-        .select('id, total_days')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .from('programs').select('id, total_days').eq('user_id', user.id)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
 
       if (prog && nextDayNum) {
         const { data: dayData } = await supabase
-          .from('program_days')
-          .select('id, exercises')
-          .eq('program_id', prog.id)
-          .eq('day_number', nextDayNum)
-          .maybeSingle();
+          .from('program_days').select('id, exercises')
+          .eq('program_id', prog.id).eq('day_number', nextDayNum).maybeSingle();
 
-        if (dayData && dayData.exercises) {
+        if (dayData?.exercises) {
           const exercises = dayData.exercises as Array<Record<string, unknown>>;
           let adjusted = [...exercises];
 
           for (const adj of adjustments) {
             if (adj.weightScale) {
-              adjusted = adjusted.map((ex) => ({
-                ...ex,
-                weight: Math.round(((ex.weight as number) * adj.weightScale!) / 2.5) * 2.5,
-              }));
+              adjusted = adjusted.map((ex) => ({ ...ex, weight: Math.round(((ex.weight as number) * adj.weightScale!) / 2.5) * 2.5 }));
             }
             if (adj.rpeDelta) {
-              adjusted = adjusted.map((ex) => ({
-                ...ex,
-                rpe: Math.max(5, Math.min(10, ((ex.rpe as number) ?? 7) + adj.rpeDelta!)),
-              }));
+              adjusted = adjusted.map((ex) => ({ ...ex, rpe: Math.max(5, Math.min(10, ((ex.rpe as number) ?? 7) + adj.rpeDelta!)) }));
             }
             if (adj.maxExercises) {
               const primaries = adjusted.filter((e) => e.role === 'primary');
@@ -271,56 +250,27 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
                 const exName = ((ex.name as string) ?? '').toLowerCase();
                 return targetWords.some(w => exName.includes(w)) || exName.includes(target);
               });
-
               if (matchIdx !== -1) {
                 const matchedEx = adjusted[matchIdx];
                 const currentIds = new Set(adjusted.map((e) => e.exercise_id));
-                const { data: candidates } = await supabase
-                  .from('exercises')
-                  .select('id, name, category')
-                  .eq('user_id', user.id)
-                  .in('status', ['YES', 'SUB'])
-                  .eq('category', matchedEx.category)
-                  .neq('id', matchedEx.exercise_id);
-
+                const { data: candidates } = await supabase.from('exercises').select('id, name, category')
+                  .eq('user_id', user.id).in('status', ['YES', 'SUB']).eq('category', matchedEx.category).neq('id', matchedEx.exercise_id);
                 const substitute = candidates?.find(c => !currentIds.has(c.id));
                 if (substitute) {
-                  adjusted[matchIdx] = {
-                    ...matchedEx,
-                    exercise_id: substitute.id,
-                    name: substitute.name,
-                    notes: `Sustituido por solicitud`,
-                  };
-                  adj.details = `"${matchedEx.name}" reemplazado por "${substitute.name}".`;
-                } else {
-                  adj.details = `No se encontró sustituto disponible para "${matchedEx.name}" en la misma categoría.`;
+                  adjusted[matchIdx] = { ...matchedEx, exercise_id: substitute.id, name: substitute.name, notes: 'Sustituido por solicitud' };
                 }
-              } else {
-                adj.details = `No se encontró "${adj.targetExerciseName}" en tu sesión de hoy. Verifica el nombre del ejercicio.`;
               }
             }
           }
 
-          const nonSwapReasons = adjustments.filter(a => a.type !== 'swap_specific').map(a => a.reason);
-          if (nonSwapReasons.length > 0) {
-            adjusted = adjusted.map((ex) => {
-              if (ex.notes === 'Sustituido por solicitud') return ex;
-              return { ...ex, notes: 'Ajustado — ' + nonSwapReasons.join(', ') };
-            });
-          }
-
-          await supabase
-            .from('program_days')
-            .update({ exercises: adjusted })
-            .eq('id', dayData.id);
+          await supabase.from('program_days').update({ exercises: adjusted }).eq('id', dayData.id);
+          setTodayExercises(adjusted as ProgramDayExercise[]);
         }
       }
 
-      setAdjustResult(adjustments);
       setAdjustInput('');
       toast.success('Ajustes aplicados a tu próxima sesión');
-    } catch (err) {
-      console.error('Error applying adjustments:', err);
+    } catch {
       toast.error('No se pudieron aplicar los ajustes. Intenta de nuevo.');
     } finally {
       setAdjusting(false);
@@ -356,17 +306,11 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
           const cat = missingExercises.find(e => e.exercise_name === name)?.category || 'CORE';
           return { user_id: user.id, name, category: cat, status: 'YES' };
         });
-
         const { data: inserted } = await supabase.from('exercises').insert(inserts).select();
-
         if (inserted) {
           missingExercises.forEach(missing => {
             const match = inserted.find((i: { name: string; id: string }) => i.name === missing.exercise_name);
-            if (match) {
-              missing.exercise_id = match.id;
-            } else {
-              missing.exercise_id = '';
-            }
+            missing.exercise_id = match ? match.id : '';
           });
         }
       }
@@ -378,287 +322,229 @@ export default function DashboardView({ onNavigate, onStartTravel }: DashboardVi
         reps_per_set: ex.reps_max || ex.reps_min || 10,
         weight: 0,
         rpe: ex.rpe || 8,
-        notes: ex.notes || 'Modo viaje'
+        notes: ex.notes || 'Modo viaje',
       }));
 
       onStartTravel(travelDraft);
       setShowTravelSetup(false);
-    } catch (err) {
-      console.error(err);
+    } catch {
       toast.error('Error al generar la rutina de viaje.');
     } finally {
       setAdjusting(false);
     }
   };
 
-  if (loading) return <DashboardSkeleton />;
+  const weekNum = completedWeeks + 1;
+  const blockName = getBlockInfo(weekNum);
+  const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' });
+  const timeStr = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400 }}>
+        <Loader2 size={24} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   return (
-    <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-8">
+    <div className="forge-fade" style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 24 }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-      {/* Program Complete Banner */}
-      <AnimatePresence>
-        {programComplete && (
-          <motion.div
-            variants={fadeUp}
-            className="relative overflow-hidden rounded-2xl p-6 md:p-8 bg-gradient-to-br from-primary-container/40 to-secondary-container/30 border border-primary/20 shadow-lg"
-          >
-            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[80px] rounded-full translate-x-1/3 -translate-y-1/3" />
-            <div className="relative z-10">
-              <p className="text-primary font-headline font-bold text-xs uppercase tracking-widest mb-2">
-                🏆 ¡Programa completado!
-              </p>
-              <h3 className="text-on-surface font-headline font-extrabold text-2xl mb-1">
-                Terminaste las {completedWeeks} semanas
-              </h3>
-              <p className="text-on-surface-variant font-body text-sm mb-5 max-w-sm">
-                Completaste un ciclo completo. Es hora de un nuevo programa progresivo con mayor intensidad y volumen basado en tus cargas actuales.
-              </p>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => onNavigate('library')}
-                className="bg-primary text-on-primary font-headline font-bold px-6 py-3 rounded-full text-sm tracking-tight shadow-md flex items-center gap-2"
-              >
-                <RefreshCw size={15} />
-                Iniciar Nuevo Ciclo
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Hero card */}
-      <motion.div variants={fadeUp} className="glass-panel rounded-xl p-8 md:p-12 relative overflow-hidden group shadow-xl shadow-on-surface/3">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-primary-container/20 blur-[100px] rounded-full translate-x-1/3 -translate-y-1/3 transition-transform duration-700 group-hover:scale-[1.4]" />
-        <h2 className="text-3xl md:text-4xl font-headline font-extrabold mb-2 relative z-10 text-on-surface">¿Listo para entrenar?</h2>
-        <p className="text-on-surface-variant mb-2 max-w-md relative z-10 font-body">
-          {sessions.length === 0
-            ? 'Aún no tienes sesiones. Comienza la primera.'
-            : `Última sesión: ${sessions[0]?.name ?? '—'}`}
-        </p>
-        {nextDayName && !programComplete && (
-          <p className="text-primary mb-8 relative z-10 font-headline font-bold text-sm tracking-tight">
-            Siguiente: Día {nextDayNum} — {nextDayName}
-          </p>
-        )}
-        {(!nextDayName || programComplete) && <div className="mb-8" />}
-        <div className="flex flex-col sm:flex-row gap-4 relative z-10">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => onNavigate('session')}
-            className="flex-1 sm:flex-none justify-center bg-primary-container text-on-primary-container font-headline font-bold px-8 py-4 rounded-full text-lg tracking-tight shadow-lg shadow-primary-container/25 flex items-center gap-2 group/btn"
-          >
-            Comenzar Rutina
-            <Dumbbell size={18} className="group-hover/btn:rotate-12 transition-transform" />
-          </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowTravelSetup(true)}
-            disabled={adjusting}
-            className="flex-1 sm:flex-none justify-center bg-surface-container-high/60 text-on-surface font-headline font-bold px-6 py-4 rounded-full text-sm tracking-tight hover:bg-surface-container-high border border-outline-variant/20 disabled:opacity-50 flex items-center gap-2"
-          >
-            <Plane size={16} /> Modo Viaje
-          </motion.button>
-
-          {/* Travel Setup Modal */}
-          <Modal
-            isOpen={showTravelSetup}
-            onClose={() => setShowTravelSetup(false)}
-            title="✈️ Modo Viaje"
-            description="Configura tu rutina según lo que tienes disponible ahora mismo."
-            size="md"
-            actions={
-              <>
-                <button
-                  onClick={() => setShowTravelSetup(false)}
-                  className="px-5 py-2.5 rounded-full text-sm font-headline font-bold text-on-surface-variant hover:bg-surface-container transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleTravelModeClick}
-                  disabled={adjusting}
-                  className="bg-primary-container text-on-primary-container font-headline font-bold px-6 py-2.5 rounded-full text-sm flex items-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-md disabled:opacity-50"
-                >
-                  {adjusting ? <><Loader2 size={14} className="animate-spin" /> Generando...</> : <><Check size={14} /> Generar Rutina</>}
-                </button>
-              </>
-            }
-          >
-            <div className="space-y-6">
-              {/* Días por semana */}
-              <div>
-                <div className="flex items-baseline justify-between mb-3">
-                  <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Días por semana</label>
-                  <span className="text-3xl font-headline font-extrabold text-primary">{travelDays}</span>
-                </div>
-                <input
-                  type="range" min={2} max={5} value={travelDays}
-                  onChange={(e) => setTravelDays(Number(e.target.value))}
-                  className="w-full accent-primary h-1.5 bg-outline-variant/20 rounded-full appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between text-on-surface-variant/40 text-xs mt-1.5 font-body">
-                  <span>2</span><span>3</span><span>4</span><span>5</span>
-                </div>
-              </div>
-
-              {/* Ligas / Bandas */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3">¿Tienes ligas o bandas?</label>
-                <div className="flex gap-2">
-                  {([{ value: true, label: 'Sí, tengo' }, { value: false, label: 'No tengo' }] as const).map(opt => (
-                    <button key={String(opt.value)} type="button" onClick={() => setTravelHasBands(opt.value)}
-                      className={`flex-1 py-2.5 rounded-full font-headline font-bold text-sm border transition-all ${travelHasBands === opt.value ? 'bg-primary-container text-on-primary-container border-primary-container shadow-sm' : 'bg-surface-container-low border-outline-variant/20 text-on-surface-variant hover:bg-surface-container'}`}>
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Barras de calistenia */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3">¿Tienes acceso a barras de calistenia?</label>
-                <p className="text-on-surface-variant/60 text-xs font-body mb-3">Barra de dominadas, anillas, barras paralelas, etc.</p>
-                <div className="flex gap-2">
-                  {([{ value: true, label: 'Sí tengo' }, { value: false, label: 'No tengo' }] as const).map(opt => (
-                    <button key={String(opt.value)} type="button" onClick={() => setTravelHasPullupBar(opt.value)}
-                      className={`flex-1 py-2.5 rounded-full font-headline font-bold text-sm border transition-all ${travelHasPullupBar === opt.value ? 'bg-primary-container text-on-primary-container border-primary-container shadow-sm' : 'bg-surface-container-low border-outline-variant/20 text-on-surface-variant hover:bg-surface-container'}`}>
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Volumen */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-3">Volumen que toleras</label>
-                <div className="flex flex-col gap-2">
-                  {([
-                    { value: 'basic', label: 'Básico', desc: '5 – 10 reps por serie' },
-                    { value: 'intermediate', label: 'Intermedio', desc: '10 – 20 reps por serie' },
-                    { value: 'advanced', label: 'Avanzado', desc: '20+ reps por serie' },
-                  ] as const).map(opt => (
-                    <button key={opt.value} type="button" onClick={() => setTravelVolume(opt.value)}
-                      className={`w-full px-4 py-3 rounded-xl font-headline font-bold text-sm border text-left flex items-center justify-between transition-all ${travelVolume === opt.value ? 'bg-primary-container text-on-primary-container border-primary-container shadow-sm' : 'bg-surface-container-low border-outline-variant/20 text-on-surface-variant hover:bg-surface-container'}`}>
-                      <span>{opt.label}</span>
-                      <span className={`text-xs font-body font-normal ${travelVolume === opt.value ? 'text-on-primary-container/70' : 'text-on-surface-variant/50'}`}>{opt.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Modal>
+      {/* Header row */}
+      <div style={{ gridColumn: 'span 12', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16 }}>
+        <div>
+          <div className="uc" style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>
+            Buenos días{user?.email ? `, ${user.email.split('@')[0]}` : ''}
+          </div>
+          <div className="mono caption" style={{ marginTop: 6 }}>{today} · {timeStr}</div>
         </div>
-      </motion.div>
-
-      {/* Smart Adjustment Chat */}
-      <motion.div variants={fadeUp} className="card-elevated rounded-xl p-6 md:p-8">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles size={16} className="text-primary" />
-          <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Ajuste Inteligente</h3>
+        <div className="mono caption" style={{ textAlign: 'right' }}>
+          Bloque {blockName} · Semana {weekNum}/12{nextDayNum ? ` · Día ${nextDayNum}` : ''}
         </div>
-        <p className="text-on-surface-variant text-sm font-body mb-4">
-          Dime cómo te sientes o qué ejercicio quieres cambiar y lo ajusto.
-        </p>
+      </div>
 
-        <div className="flex gap-2 mb-2">
-          <textarea
-            value={adjustInput}
-            onChange={(e) => setAdjustInput(e.target.value)}
-            placeholder='Ej: "Cambiar press inclinado" o "Dormí poco y me duele el hombro"'
-            aria-label="Mensaje de ajuste inteligente"
-            className="flex-1 bg-surface-container-high/50 border border-outline-variant/20 rounded-xl px-4 py-3 text-on-surface font-body text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-on-surface-variant/40"
-            rows={2}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (adjustInput.trim()) handleAdjust();
-              }
-            }}
-          />
-          <button
-            onClick={handleAdjust}
-            disabled={!adjustInput.trim() || adjusting}
-            aria-label="Enviar ajuste"
-            className="self-end bg-primary-container text-on-primary-container rounded-xl px-4 py-3 font-headline font-bold text-sm hover:scale-[1.03] active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center gap-2"
-          >
-            {adjusting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-            Ajustar
+      {/* Program complete banner */}
+      {programComplete && (
+        <div style={{ gridColumn: 'span 12', border: '1px solid var(--accent)', borderRadius: 12, padding: 24, background: 'color-mix(in oklab, var(--accent), transparent 94%)', display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
+          <div>
+            <div className="uc" style={{ color: 'var(--accent)', marginBottom: 6 }}>¡Programa completado!</div>
+            <div className="d-s" style={{ fontWeight: 600 }}>Completaste las <span className="serif" style={{ fontStyle: 'italic', color: 'var(--accent)' }}>{completedWeeks} semanas</span>. Hora de un nuevo ciclo.</div>
+          </div>
+          <button onClick={() => onNavigate('library')} className="btn btn-ghost" style={{ whiteSpace: 'nowrap' }}>
+            <RefreshCw size={14}/> Nuevo ciclo
           </button>
         </div>
+      )}
 
-        {/* Quick suggestion chips */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {['😴 Dormí poco', '🤕 Me duele algo', '⏱ Poco tiempo', '🔧 Falta equipo', '🔄 Cambiar ejercicio'].map((chip) => (
-            <button
-              key={chip}
-              onClick={() => {
-                const map: Record<string, string> = {
-                  '😴 Dormí poco': 'Dormí muy poco, me siento cansado',
-                  '🤕 Me duele algo': 'Tengo dolor muscular, me siento adolorido',
-                  '⏱ Poco tiempo': 'Solo tengo 30 minutos hoy',
-                  '🔧 Falta equipo': 'No tengo barra disponible hoy',
-                  '🔄 Cambiar ejercicio': 'Cambiar ',
-                };
-                setAdjustInput(map[chip] ?? chip);
-              }}
-              className="text-xs font-body bg-surface-container-high/50 border border-outline-variant/15 rounded-full px-3 py-1.5 text-on-surface-variant hover:bg-primary-container/20 hover:text-primary transition-colors"
-            >
-              {chip}
-            </button>
-          ))}
+      {/* Primary action card */}
+      <div style={{ gridColumn: 'span 12', background: 'var(--ink)', color: 'var(--paper)', borderRadius: 16, padding: '40px', display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 32, alignItems: 'end', minHeight: 320 }}>
+        <div>
+          <div className="uc" style={{ opacity: .6, marginBottom: 24 }}>
+            {programComplete ? 'Entrena hoy' : 'Hoy entrenas'}
+          </div>
+          <h1 className="d-xl" style={{ margin: 0 }}>
+            {nextDayName || (programComplete ? 'Sesión libre' : 'Tu rutina')}
+            {nextDayName ? '.' : ''}
+          </h1>
+          <div style={{ display: 'flex', gap: 24, marginTop: 32, flexWrap: 'wrap' }}>
+            <div>
+              <div className="mono caption" style={{ opacity: .5 }}>EJERCICIOS</div>
+              <div className="d-m" style={{ marginTop: 4 }}>{todayExercises.length || '—'}</div>
+            </div>
+            <div>
+              <div className="mono caption" style={{ opacity: .5 }}>SERIES</div>
+              <div className="d-m" style={{ marginTop: 4 }}>{todayExercises.reduce((a, e) => a + (e.sets || 0), 0) || '—'}</div>
+            </div>
+          </div>
         </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
+          <button
+            onClick={onStartSession}
+            className="btn btn-accent btn-xl"
+            style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
+          >
+            Empezar entrenamiento <ArrowRight size={20}/>
+          </button>
+          <button
+            onClick={() => setShowTravelSetup(true)}
+            className="btn btn-ghost btn-lg"
+            style={{ width: '100%', justifyContent: 'center', color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.2)' }}
+          >
+            Sesión fuera del gym
+          </button>
+        </div>
+      </div>
 
-        {/* Adjustment results */}
-        <AnimatePresence>
-          {adjustResult && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-3"
-            >
-              {adjustResult.map((adj, i) => (
-                <div key={i} className="bg-primary-container/15 border border-primary-container/25 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-primary font-headline font-bold text-sm">{adj.reason}</span>
-                  </div>
-                  <p className="text-on-surface-variant text-sm font-body">{adj.details}</p>
+      {/* Exercise preview */}
+      {todayExercises.length > 0 && (
+        <div style={{ gridColumn: 'span 8' }}>
+          <div className="uc" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
+            <span>Ejercicios de hoy</span>
+            <span className="mono">{todayExercises.length} de {todayExercises.length}</span>
+          </div>
+          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
+            {todayExercises.map((e, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 100px 100px 80px', gap: 16, padding: '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
+                <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>
+                <div>
+                  <div className="d-s" style={{ fontWeight: 600 }}>{e.name || '—'}</div>
                 </div>
-              ))}
-              <p className="text-primary/70 text-xs font-body flex items-center gap-1">
-                <Check size={12} /> Los ajustes se aplicaron a tu próxima sesión
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-
-      {/* Recent Sessions */}
-      <motion.div variants={fadeUp} className="card-elevated rounded-xl p-6 md:p-8">
-        <h3 className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-4">Sesiones Recientes</h3>
-        {sessions.length === 0 ? (
-          <p className="text-on-surface-variant font-body text-sm py-8 text-center">Sin sesiones registradas</p>
-        ) : (
-          <div className="divide-y divide-outline-variant/15">
-            {sessions.map((s) => (
-              <div key={s.id} className="flex justify-between items-center py-3.5 hover:bg-surface-container-high/50 -mx-3 px-3 rounded-lg transition-colors">
-                <div className="flex gap-4 items-center">
-                  <span className="text-primary font-headline font-bold text-sm w-12">
-                    {s.block_num ? `B${s.block_num}` : '—'}
-                  </span>
-                  <span className="text-on-surface font-body">{s.name}</span>
-                </div>
-                <span className="text-on-surface-variant text-sm">{new Date(s.date).toLocaleDateString()}</span>
+                <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>
+                <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg` : 'BW'}</div>
+                <div className="mono caption" style={{ color: 'var(--accent)', fontWeight: 600 }}>{e.rpe ? `RPE ${e.rpe}` : ''}</div>
               </div>
             ))}
           </div>
+
+          {/* Quick adjust */}
+          <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+            <input
+              value={adjustInput}
+              onChange={e => setAdjustInput(e.target.value)}
+              placeholder='Ej: "poco tiempo" o "me duele el hombro"'
+              className="forge-field"
+              style={{ flex: 1 }}
+              onKeyDown={e => { if (e.key === 'Enter' && adjustInput.trim()) handleAdjust(); }}
+            />
+            <button
+              onClick={handleAdjust}
+              disabled={!adjustInput.trim() || adjusting}
+              className="btn btn-ink"
+              style={{ opacity: (!adjustInput.trim() || adjusting) ? .4 : 1 }}
+            >
+              {adjusting ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> : 'Ajustar'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Side rail */}
+      <div style={{ gridColumn: todayExercises.length > 0 ? 'span 4' : 'span 12', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Week progress */}
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: 24 }}>
+          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16 }}>Esta semana</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            <span className="d-l" style={{ fontWeight: 600 }}>{Math.min(nextDayNum ? nextDayNum - 1 : 0, 7)}</span>
+            <span className="body-s" style={{ color: 'var(--muted)' }}>sesiones completadas</span>
+          </div>
+          <div className="mono caption" style={{ marginTop: 12, color: 'var(--muted)' }}>Semana {weekNum} de 12 · {blockName}</div>
+        </div>
+
+        {/* Last session */}
+        {sessions.length > 0 && (
+          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: 24 }}>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16 }}>Última sesión</div>
+            <div className="d-s" style={{ fontWeight: 600 }}>{sessions[0].name}</div>
+            <div className="caption" style={{ color: 'var(--muted)', marginTop: 4 }}>
+              {new Date(sessions[0].date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+              {sessions[0].block_num ? ` · Bloque ${sessions[0].block_num}` : ''}
+            </div>
+          </div>
         )}
-      </motion.div>
-    </motion.div>
+
+        {/* Program link */}
+        <button
+          onClick={() => onNavigate('program')}
+          style={{ background: 'transparent', border: '1px dashed var(--rule)', borderRadius: 12, padding: 24, textAlign: 'left', cursor: 'pointer', color: 'var(--ink)', fontFamily: 'var(--sans)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        >
+          <span className="body" style={{ fontWeight: 600 }}>Ver programa completo</span>
+          <ArrowRight size={16}/>
+        </button>
+      </div>
+
+      {/* Travel setup modal */}
+      <Modal
+        isOpen={showTravelSetup}
+        onClose={() => setShowTravelSetup(false)}
+        title="Sesión fuera del gym"
+        description="Configura tu rutina según lo que tienes disponible."
+        size="md"
+        actions={
+          <>
+            <button onClick={() => setShowTravelSetup(false)} className="btn btn-ghost">Cancelar</button>
+            <button onClick={handleTravelModeClick} disabled={adjusting} className="btn btn-ink" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {adjusting ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : null}
+              Generar sesión
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Días por semana fuera</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {[2, 3, 4, 5].map(n => (
+                <button key={n} onClick={() => setTravelDays(n)} className={`btn ${travelDays === n ? 'btn-ink' : 'btn-ghost'}`}>{n} días</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Equipo disponible</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                <input type="checkbox" checked={travelHasBands} onChange={e => setTravelHasBands(e.target.checked)} />
+                <span className="body">Bandas elásticas</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                <input type="checkbox" checked={travelHasPullupBar} onChange={e => setTravelHasPullupBar(e.target.checked)} />
+                <span className="body">Barra de dominadas / calistenia</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Volumen</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(['basic', 'intermediate', 'advanced'] as const).map(v => (
+                <button key={v} onClick={() => setTravelVolume(v)} className={`btn btn-sq ${travelVolume === v ? 'btn-ink' : 'btn-ghost'}`} style={{ justifyContent: 'flex-start', borderRadius: 8 }}>
+                  {{ basic: 'Básico (5-10 reps)', intermediate: 'Intermedio (10-20 reps)', advanced: 'Avanzado (20+ reps)' }[v]}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 }
