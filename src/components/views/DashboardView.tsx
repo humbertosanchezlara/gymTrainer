@@ -230,7 +230,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           .from('program_days').select('id, exercises')
           .eq('program_id', prog.id).eq('day_number', nextDayNum).maybeSingle();
 
-        if (dayData?.exercises) {
+        if (dayData?.exercises && Array.isArray(dayData.exercises)) {
           const exercises = dayData.exercises as Array<Record<string, unknown>>;
           let adjusted = [...exercises];
 
