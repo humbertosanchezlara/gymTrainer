@@ -1,26 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import { useIsMobile } from '../../hooks/useBreakpoint';
 import type { Exercise } from '../../types';
-import { SessionLogSkeleton } from '../skeletons';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { getCatalogEntry } from '../../data/exerciseCatalog';
 import {
-  Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle
+  Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft,
 } from 'lucide-react';
 import type { Tab } from '../MainShell';
-
-// ─── Animation variants ───────────────────────────────────
-const stagger = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.15 } },
-};
-const fadeUp = {
-  hidden: { y: 18, opacity: 0 },
-  show: { y: 0, opacity: 1, transition: { type: 'spring' as const, stiffness: 300, damping: 24 } },
-};
 
 // ─── Types ────────────────────────────────────────────────
 export interface SessionLogEntry {
@@ -104,9 +93,18 @@ interface SessionViewProps {
   onClearTravel: () => void;
 }
 
+const BLOCKS = [
+  { name: 'Volumen',    num: 1, desc: 'Alto volumen, intensidad moderada' },
+  { name: 'Intensidad', num: 2, desc: 'Volumen moderado, alta intensidad' },
+  { name: 'Pico',       num: 3, desc: 'Bajo volumen, máxima intensidad' },
+  { name: 'Descarga',   num: 4, desc: 'Volumen e intensidad bajos — recuperación' },
+] as const;
+
 export default function SessionView({ onNavigate, travelDraft, onClearTravel }: SessionViewProps) {
   const { user } = useAuth();
   const toast = useToast();
+  const isMobile = useIsMobile();
+
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [sessionName, setSessionName] = useState('');
   const [weekNum, setWeekNum] = useState<number>(1);
@@ -179,8 +177,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
       if (lastGymSession) {
         const lastDate = new Date(lastGymSession.date);
         const today = new Date();
-        const diffMs = today.getTime() - lastDate.getTime();
-        daysSinceLast = Math.floor(diffMs / (1000 * 3600 * 24));
+        daysSinceLast = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 3600 * 24));
       }
 
       const sessCount = totalSessions ?? 0;
@@ -199,7 +196,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
         setDayNum(0);
         setWeekNum(0);
         setBlockNum(0);
-        setBlockName('Modo Viaje (Pausado)');
+        setBlockName('Modo Viaje');
         setLogs(travelDraft);
         setLoadingProgram(false);
         setHasProgram(true);
@@ -241,9 +238,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
 
         const weightMap = new Map<string, number>();
         if (wwData) {
-          for (const ww of wwData) {
-            weightMap.set(ww.exercise_id, Number(ww.weight));
-          }
+          for (const ww of wwData) weightMap.set(ww.exercise_id, Number(ww.weight));
         }
 
         const applyPenalty = daysSinceLast >= 14;
@@ -253,7 +248,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
           setDeloadApplied({ days: daysSinceLast, percentage: Math.round((1 - penaltyScale) * 100) });
         }
 
-        const dayExercises = (programDay.exercises || []) as Array<Record<string, unknown>>;
+        const dayExercises = (Array.isArray(programDay.exercises) ? programDay.exercises : []) as Array<Record<string, unknown>>;
         const preFilled: SessionLogEntry[] = dayExercises.map((ex) => {
           let currentWeight = weightMap.get(ex.exercise_id as string) ?? (ex.weight as number) ?? 0;
           let rpe = (ex.rpe as number) ?? 7;
@@ -318,7 +313,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
         user_id: user.id,
         name: sessionName,
         week_num: weekNum === 0 ? null : weekNum,
-        block_num: blockNum === 0 ? null : blockNum
+        block_num: blockNum === 0 ? null : blockNum,
       })
       .select()
       .single();
@@ -338,18 +333,11 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
     await supabase.from('session_logs').insert(logRows);
 
     const progressions: ProgressionResult[] = [];
-
     for (const l of logs.filter(l => l.exercise_id && l.weight > 0)) {
       const result = computeProgression(l);
       progressions.push(result);
-
       await supabase.from('working_weights').upsert(
-        {
-          user_id: user.id,
-          exercise_id: l.exercise_id,
-          weight: result.next_weight,
-          updated_at: new Date().toISOString(),
-        },
+        { user_id: user.id, exercise_id: l.exercise_id, weight: result.next_weight, updated_at: new Date().toISOString() },
         { onConflict: 'user_id,exercise_id' }
       );
     }
@@ -363,211 +351,231 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
     setSaved(true);
 
     toast.success('Sesión guardada correctamente');
-
-    setTimeout(() => {
-      onNavigate('dashboard');
-    }, notable.length > 0 ? 4000 : 1500);
+    setTimeout(() => { onNavigate('dashboard'); }, notable.length > 0 ? 4000 : 1500);
   };
 
+  // ─── Loading ───────────────────────────────────────────────
   if (loadingProgram) {
-    return <SessionLogSkeleton />;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <Loader2 size={24} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
   }
 
-  const inputNumCls = "w-full bg-white dark:bg-white/10 border border-outline-variant/30 rounded-lg py-2.5 px-3 text-center text-on-surface outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all font-body text-sm shadow-sm";
+  const blockDesc = BLOCKS.find(b => b.num === blockNum)?.desc ?? '';
 
+  // ─── Render ────────────────────────────────────────────────
   return (
-    <motion.div variants={stagger} initial="hidden" animate="show" exit={{ opacity: 0 }} className="space-y-6 max-w-2xl">
-      <motion.div variants={fadeUp}>
-        <div className="flex items-start justify-between gap-4 mb-1">
-          <h2 className="text-4xl font-headline font-extrabold tracking-tight text-on-surface">
-            {hasProgram ? sessionName || 'Registrar Sesión' : 'Registrar Sesión'}
-          </h2>
+    <div
+      className="forge-fade"
+      style={{
+        minHeight: '100vh',
+        background: 'var(--paper)',
+        color: 'var(--ink)',
+        paddingBottom: 80,
+      }}
+    >
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .session-num-input::-webkit-inner-spin-button,
+        .session-num-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .session-num-input { -moz-appearance: textfield; }
+      `}</style>
+
+      {/* ── Top bar ─────────────────────────────────────────── */}
+      <header className="forge-topnav">
+        <div style={{
+          maxWidth: 720, margin: '0 auto',
+          padding: isMobile ? '0 16px' : '0 32px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56,
+        }}>
+          <button
+            onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
+            className="btn btn-ghost"
+            style={{ gap: 6, padding: '8px 12px' }}
+          >
+            <ArrowLeft size={14} /> Hoy
+          </button>
+
           {travelDraft && (
-            <button
-              onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
-              aria-label="Salir del modo viaje"
-              className="mt-2 text-xs text-error font-bold flex items-center gap-1 hover:opacity-80 transition-opacity bg-error/10 px-3 py-1.5 rounded-full"
-            >
-              <X size={14} /> Salir del viaje
-            </button>
+            <div className="uc" style={{ color: 'var(--accent)', fontSize: 10 }}>✈️ Modo Viaje</div>
           )}
-        </div>
-        <p className="text-on-surface-variant font-body text-sm">
-          {hasProgram ? (
-            <>
-              Día {dayNum} · Semana {weekNum} · <span className="text-primary font-bold">{blockName}</span>
-            </>
-          ) : (
-            'Registra tu trabajo. Los pesos se actualizan automáticamente.'
-          )}
-        </p>
-      </motion.div>
 
-      {/* Session Meta */}
-      <motion.div variants={fadeUp} className="card-elevated rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-on-surface-variant text-xs font-bold uppercase tracking-widest">Detalles de la Sesión</span>
+          <div style={{ width: 80 }} />
         </div>
-        <input
-          type="text"
-          placeholder="Nombre de la sesión"
-          value={sessionName}
-          onChange={(e) => setSessionName(e.target.value)}
-          aria-label="Nombre de la sesión"
-          aria-required="true"
-          className="w-full bg-transparent border-b border-outline-variant/20 pb-2 text-on-surface text-lg font-headline font-bold placeholder:text-on-surface-variant/30 outline-none focus:border-primary transition-colors mb-3"
-        />
-        <div className="flex gap-4 mb-3">
-          <div className="flex-1">
-            <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-1">Semana</label>
-            <p className="text-center text-on-surface font-headline font-extrabold text-2xl">{weekNum}</p>
-          </div>
-          <div className="flex-1">
-            <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-1">Bloque</label>
-            <p className="text-center text-primary font-headline font-extrabold text-2xl">{blockName || blockNum}</p>
+      </header>
+
+      {/* ── Content ─────────────────────────────────────────── */}
+      <main style={{ maxWidth: 720, margin: '0 auto', padding: isMobile ? '24px 16px' : '32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* Header */}
+        <div style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 16 }}>
+          <input
+            type="text"
+            value={sessionName}
+            onChange={e => setSessionName(e.target.value)}
+            placeholder="Nombre de la sesión"
+            style={{
+              background: 'transparent', border: 'none', outline: 'none',
+              fontFamily: 'var(--sans)', fontWeight: 700, letterSpacing: '-0.02em',
+              fontSize: isMobile ? 26 : 32, color: 'var(--ink)', width: '100%',
+              padding: 0,
+            }}
+          />
+          <div className="mono caption" style={{ marginTop: 8, color: 'var(--muted)' }}>
+            {hasProgram && weekNum > 0
+              ? `Día ${dayNum} · Semana ${weekNum} · ${blockName}`
+              : hasProgram
+              ? blockName
+              : 'Registra tu trabajo. Los pesos se actualizan automáticamente.'}
           </div>
         </div>
 
-        {/* Periodization progress bar */}
-        {hasProgram && (
-          <div className="space-y-2">
-            <div className="flex gap-1">
-              {([
-                { name: 'Volumen', weeks: 4, num: 1 },
-                { name: 'Intensidad', weeks: 4, num: 2 },
-                { name: 'Pico', weeks: 3, num: 3 },
-                { name: 'Descarga', weeks: 1, num: 4 },
-              ] as const).map((b) => {
+        {/* Periodization bar */}
+        {hasProgram && blockNum > 0 && (
+          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 20px' }}>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Bloque actual</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+              {BLOCKS.map(b => {
                 const isActive = blockNum === b.num;
                 const isPast = blockNum > b.num;
                 return (
-                  <div key={b.num} className="flex-1 flex flex-col items-center gap-1">
-                    <div
-                      className={`h-1.5 w-full rounded-full transition-all ${
-                        isActive
-                          ? 'bg-primary-container'
-                          : isPast
-                          ? 'bg-primary/30'
-                          : 'bg-outline-variant/15'
-                      }`}
-                    />
-                    <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                      isActive ? 'text-primary' : 'text-on-surface-variant/30'
-                    }`}>
-                      {b.name}
+                  <div key={b.num} style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                    <div style={{
+                      height: 3, width: '100%', borderRadius: 99,
+                      background: isActive ? 'var(--accent)' : isPast ? 'var(--ink)' : 'var(--rule)',
+                      transition: 'background .2s',
+                    }} />
+                    <span className="mono caption" style={{
+                      fontSize: 9,
+                      color: isActive ? 'var(--accent)' : isPast ? 'var(--ink)' : 'var(--muted)',
+                      fontWeight: isActive ? 700 : 400,
+                    }}>
+                      {b.name.slice(0, isActive ? 20 : 3).toUpperCase()}
                     </span>
                   </div>
                 );
               })}
             </div>
-            <p className="text-on-surface-variant text-[10px] font-body text-center">
-              {blockNum === 1 && 'Alto volumen, intensidad moderada — construyendo base muscular'}
-              {blockNum === 2 && 'Volumen moderado, alta intensidad — ganando fuerza'}
-              {blockNum === 3 && 'Bajo volumen, máxima intensidad — expresando fuerza'}
-              {blockNum === 4 && 'Volumen e intensidad bajos — recuperación activa'}
-            </p>
+            {blockDesc && (
+              <div className="caption" style={{ marginTop: 10, color: 'var(--muted)', textAlign: 'center' }}>
+                {blockDesc}
+              </div>
+            )}
           </div>
         )}
-      </motion.div>
 
-      {deloadApplied && (
-        <motion.div variants={fadeUp} className="bg-primary-container/20 border-l-4 border-primary rounded-r-xl px-5 py-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="text-primary mt-0.5 shrink-0" size={18} />
+        {/* Deload / readaptation banner */}
+        {deloadApplied && (
+          <div style={{
+            borderLeft: '3px solid var(--accent)',
+            borderRadius: '0 8px 8px 0',
+            background: 'color-mix(in oklab, var(--accent), transparent 92%)',
+            padding: '12px 16px',
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+          }}>
+            <AlertTriangle size={16} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
             <div>
-              <p className="text-on-surface font-headline font-bold text-sm">Modo de Readaptación Activado</p>
-              <p className="text-on-surface-variant text-xs font-body mt-1">
-                Han pasado {deloadApplied.days} días desde tu última sesión de gimnasio principal. Se han reducido automáticamente tus cargas un {deloadApplied.percentage}% y el RPE objetivo ha bajado respecto al predeterminado para facilitar tu regreso sin excesos.
-              </p>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Modo de Readaptación Activado</div>
+              <div className="caption" style={{ color: 'var(--muted)' }}>
+                Han pasado {deloadApplied.days} días desde tu última sesión de gimnasio.
+                Cargas reducidas {deloadApplied.percentage}% — RPE objetivo también bajó.
+              </div>
             </div>
           </div>
-        </motion.div>
-      )}
+        )}
 
-      {/* RPE Reference Banner */}
-      <motion.div variants={fadeUp} className="bg-primary-container/15 border border-primary-container/30 rounded-xl px-4 py-3">
-        <p className="text-[11px] font-bold text-primary/70 uppercase tracking-widest mb-1">RPE — Esfuerzo Percibido</p>
-        <p className="text-on-surface-variant text-xs font-body leading-relaxed">
-          <span className="text-on-surface font-medium">6</span> = quedan 4+ reps ·{' '}
-          <span className="text-on-surface font-medium">7</span> = quedan 3 ·{' '}
-          <span className="text-on-surface font-medium">8</span> = quedan 2 ·{' '}
-          <span className="text-on-surface font-medium">9</span> = queda 1 ·{' '}
-          <span className="text-on-surface font-medium">10</span> = fallo muscular
-        </p>
-      </motion.div>
+        {/* RPE reference */}
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '12px 16px' }}>
+          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 6 }}>RPE — Esfuerzo Percibido</div>
+          <div className="mono caption" style={{ color: 'var(--muted)', lineHeight: 1.7 }}>
+            <strong style={{ color: 'var(--ink)' }}>6</strong> = quedan 4+ reps ·{' '}
+            <strong style={{ color: 'var(--ink)' }}>7</strong> = quedan 3 ·{' '}
+            <strong style={{ color: 'var(--ink)' }}>8</strong> = quedan 2 ·{' '}
+            <strong style={{ color: 'var(--ink)' }}>9</strong> = queda 1 ·{' '}
+            <strong style={{ color: 'var(--ink)' }}>10</strong> = fallo
+          </div>
+        </div>
 
-      {/* Exercise Logs */}
-      <AnimatePresence>
+        {/* ── Exercise log cards ──────────────────────────────── */}
         {logs.map((log, i) => (
-          <motion.div
+          <div
             key={`log-${i}-${log.exercise_id}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ delay: i * 0.04 }}
-            className="card-elevated rounded-xl p-5 space-y-3"
+            style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}
           >
-            {/* Header row */}
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
+            {/* Exercise name + controls */}
+            <div style={{
+              padding: isMobile ? '14px 16px' : '18px 24px',
+              borderBottom: '1px solid var(--rule)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 {log.exercise_name ? (
-                  <div>
-                    <span className="text-on-surface font-headline font-bold text-lg tracking-tight leading-tight block">{log.exercise_name}</span>
+                  <>
+                    <div style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.3 }}>{log.exercise_name}</div>
                     {getCatalogEntry(log.exercise_name) && (
                       <button
                         onClick={() => setDetailExercise(log.exercise_name)}
-                        aria-label={`Ver técnica de ${log.exercise_name}`}
-                        className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-primary hover:text-primary/80 transition-colors group"
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: 4,
+                          color: 'var(--accent)', fontFamily: 'var(--sans)',
+                          fontSize: 11, fontWeight: 700, padding: '4px 0',
+                          textTransform: 'uppercase', letterSpacing: '0.06em',
+                        }}
                       >
-                        <Eye size={11} className="group-hover:scale-110 transition-transform" />
-                        Ver técnica
+                        <Eye size={11} /> Ver técnica
                       </button>
                     )}
-                  </div>
+                  </>
                 ) : (
                   <select
                     value={log.exercise_id}
-                    onChange={(e) => updateLog(i, 'exercise_id', e.target.value)}
-                    aria-label="Seleccionar ejercicio"
-                    className="w-full bg-transparent text-on-surface font-headline font-bold text-lg outline-none appearance-none cursor-pointer"
+                    onChange={e => updateLog(i, 'exercise_id', e.target.value)}
+                    style={{
+                      width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                      fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 15,
+                      color: 'var(--ink)', cursor: 'pointer',
+                    }}
                   >
-                    <option value="" className="bg-surface">Seleccionar ejercicio...</option>
-                    {exercises.map((ex) => (
-                      <option key={ex.id} value={ex.id} className="bg-surface">{ex.name}</option>
+                    <option value="">Seleccionar ejercicio…</option>
+                    {exercises.map(ex => (
+                      <option key={ex.id} value={ex.id}>{ex.name}</option>
                     ))}
                   </select>
                 )}
               </div>
 
-              {/* Rest time chip + delete */}
-              <div className="flex items-center gap-2 shrink-0 pt-0.5">
-                <div className="flex items-center gap-1 bg-surface-container-highest/60 rounded-full px-2.5 py-1">
-                  <Clock size={10} className="text-on-surface-variant/60" />
-                  <span className="text-[10px] font-bold text-on-surface-variant whitespace-nowrap">{getRestLabel(log.rpe)}</span>
+              {/* Rest chip + delete */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  border: '1px solid var(--rule)', borderRadius: 999, padding: '4px 10px',
+                }}>
+                  <Clock size={10} style={{ color: 'var(--muted)' }} />
+                  <span className="mono caption" style={{ whiteSpace: 'nowrap' }}>{getRestLabel(log.rpe)}</span>
                 </div>
 
                 {confirmDeleteIdx === i ? (
-                  <div className="flex items-center gap-1">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <button
                       onClick={() => removeLog(i)}
-                      aria-label={`Confirmar eliminar ${log.exercise_name || 'ejercicio'}`}
-                      className="flex items-center gap-1 text-[10px] font-bold text-error bg-error-container/40 hover:bg-error-container/70 px-2 py-1 rounded-full transition-colors"
+                      className="btn btn-ghost"
+                      style={{ padding: '4px 10px', fontSize: 12, color: '#ba1a1a', borderColor: '#ba1a1a', gap: 4 }}
                     >
-                      <Trash2 size={10} /> Borrar
+                      <Trash2 size={11} /> Borrar
                     </button>
-                    <button
-                      onClick={() => setConfirmDeleteIdx(null)}
-                      aria-label="Cancelar eliminación"
-                      className="text-on-surface-variant/50 hover:text-on-surface-variant transition-colors p-1"
-                    >
+                    <button onClick={() => setConfirmDeleteIdx(null)} className="btn btn-ghost" style={{ padding: 6 }}>
                       <X size={14} />
                     </button>
                   </div>
                 ) : (
                   <button
                     onClick={() => setConfirmDeleteIdx(i)}
-                    aria-label={`Eliminar ${log.exercise_name || 'ejercicio'}`}
-                    className="text-on-surface-variant/30 hover:text-error transition-colors p-1"
+                    className="btn btn-ghost"
+                    style={{ padding: 6, color: 'var(--muted)' }}
                   >
                     <Trash2 size={15} />
                   </button>
@@ -575,136 +583,155 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
               </div>
             </div>
 
-            {/* Delete confirmation warning */}
+            {/* Delete confirmation */}
             {confirmDeleteIdx === i && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="flex items-center gap-2 bg-error-container/20 border border-error/20 rounded-lg px-3 py-2"
-              >
-                <AlertTriangle size={12} className="text-error shrink-0" />
-                <p className="text-[11px] text-error/80 font-body">¿Eliminar <span className="font-bold">{log.exercise_name || 'este ejercicio'}</span>?</p>
-              </motion.div>
+              <div style={{
+                padding: '10px 16px',
+                background: 'color-mix(in oklab, #ba1a1a, transparent 92%)',
+                borderBottom: '1px solid var(--rule)',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <AlertTriangle size={12} style={{ color: '#ba1a1a', flexShrink: 0 }} />
+                <span className="caption" style={{ color: '#ba1a1a' }}>
+                  ¿Eliminar <strong>{log.exercise_name || 'este ejercicio'}</strong>?
+                </span>
+              </div>
             )}
 
-            <div className="grid grid-cols-4 gap-3">
-              <div>
-                <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-1.5">Series</label>
+            {/* 4-column input grid — 1px gap creates divider lines */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: 'var(--rule)' }}>
+              {/* SERIES */}
+              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>SERIES</span>
                 <input
                   type="number"
+                  className="session-num-input"
                   value={log.sets}
-                  onChange={(e) => updateLog(i, 'sets', +e.target.value)}
-                  aria-label="Series"
+                  onChange={e => updateLog(i, 'sets', +e.target.value)}
                   inputMode="numeric"
-                  step="1"
-                  min="1"
-                  className={inputNumCls}
+                  step={1}
+                  min={1}
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
                 />
               </div>
-              <div>
-                <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-1.5">Reps</label>
+              {/* REPS */}
+              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>REPS</span>
                 <input
                   type="number"
+                  className="session-num-input"
                   value={log.reps_per_set}
-                  onChange={(e) => updateLog(i, 'reps_per_set', +e.target.value)}
-                  aria-label="Repeticiones"
+                  onChange={e => updateLog(i, 'reps_per_set', +e.target.value)}
                   inputMode="numeric"
-                  step="1"
-                  min="1"
-                  className={inputNumCls}
+                  step={1}
+                  min={1}
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
                 />
               </div>
-              <div>
-                <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-1.5">Peso (kg)</label>
+              {/* PESO */}
+              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>{isMobile ? 'kg' : 'PESO (kg)'}</span>
                 <input
                   type="number"
+                  className="session-num-input"
                   value={log.weight}
-                  onChange={(e) => updateLog(i, 'weight', +e.target.value)}
-                  aria-label="Peso (kg)"
+                  onChange={e => updateLog(i, 'weight', +e.target.value)}
                   inputMode="decimal"
-                  step="2.5"
-                  min="0"
-                  className={inputNumCls}
+                  step={2.5}
+                  min={0}
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
                 />
               </div>
-              <div>
-                <label className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest block mb-1.5">RPE</label>
+              {/* RPE */}
+              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>RPE</span>
                 <input
                   type="number"
+                  className="session-num-input"
                   value={log.rpe}
-                  onChange={(e) => updateLog(i, 'rpe', +e.target.value)}
-                  aria-label="RPE (esfuerzo percibido)"
+                  onChange={e => updateLog(i, 'rpe', +e.target.value)}
                   inputMode="numeric"
-                  step="1"
-                  min="5"
-                  max="10"
-                  className={inputNumCls}
+                  step={1}
+                  min={5}
+                  max={10}
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--accent)', outline: 'none' }}
                 />
               </div>
             </div>
-          </motion.div>
+          </div>
         ))}
-      </AnimatePresence>
 
-      {/* Add Exercise */}
-      <motion.button
-        variants={fadeUp}
-        onClick={addLog}
-        className="w-full border border-dashed border-outline-variant/30 rounded-xl py-4 text-on-surface-variant/50 hover:text-primary hover:border-primary/30 transition-all font-headline font-bold flex items-center justify-center gap-2 text-sm"
-      >
-        <Plus size={16} /> Agregar Ejercicio
-      </motion.button>
+        {/* Add exercise */}
+        <button
+          onClick={addLog}
+          style={{
+            background: 'transparent',
+            border: '1px dashed var(--rule)',
+            borderRadius: 12,
+            padding: '16px 24px',
+            cursor: 'pointer',
+            fontFamily: 'var(--sans)',
+            fontWeight: 600,
+            fontSize: 14,
+            color: 'var(--muted)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            transition: 'color .15s, border-color .15s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--ink)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--ink)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--rule)'; }}
+        >
+          <Plus size={16} /> Agregar ejercicio
+        </button>
 
-      {/* Save */}
-      {logs.length > 0 && (
-        <motion.div variants={fadeUp} className="pt-2 space-y-3">
-          <button
-            onClick={handleSave}
-            disabled={saving || !sessionName}
-            className="w-full bg-primary-container text-on-primary-container font-headline font-bold py-4 rounded-full text-lg tracking-tight flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-primary-container/20 disabled:opacity-40"
-          >
-            {saved ? <><Check size={20} /> ¡Guardado!</> : saving ? 'Guardando...' : <><Save size={18} /> Guardar Sesión</>}
-          </button>
+        {/* Save button */}
+        {logs.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving || !sessionName}
+              className="btn btn-ink btn-xl"
+              style={{ justifyContent: 'center', opacity: (saving || !sessionName) ? 0.4 : 1 }}
+            >
+              {saved
+                ? <><Check size={18} /> ¡Guardado!</>
+                : saving
+                ? <><Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> Guardando…</>
+                : <><Save size={16} /> Guardar sesión</>}
+            </button>
 
-          {/* Progression summary — shown after save */}
-          <AnimatePresence>
+            {/* Progression summary — shown after save */}
             {saved && progressionResults.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="card-elevated rounded-xl p-4 space-y-2"
-              >
-                <p className="text-on-surface-variant text-[10px] font-bold uppercase tracking-widest">
-                  Progresión automática
-                </p>
-                {progressionResults.map((r) => (
-                  <div key={r.exercise_name} className="flex items-center justify-between gap-3">
-                    <span className="text-on-surface font-body text-sm truncate">{r.exercise_name}</span>
-                    {r.action === 'up' ? (
-                      <span className="shrink-0 flex items-center gap-1 text-xs font-headline font-bold text-primary bg-primary-container/30 px-2.5 py-1 rounded-full">
-                        ↑ {r.prev_weight} → {r.next_weight} kg
-                      </span>
-                    ) : (
-                      <span className="shrink-0 flex items-center gap-1 text-xs font-headline font-bold text-secondary bg-secondary-container/30 px-2.5 py-1 rounded-full">
-                        ⚠ Peso elevado — revisa
-                      </span>
-                    )}
+              <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
+                  <div className="uc" style={{ color: 'var(--muted)' }}>Progresión automática</div>
+                </div>
+                {progressionResults.map(r => (
+                  <div
+                    key={r.exercise_name}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      gap: 12, padding: '12px 20px', borderTop: '1px solid var(--rule)',
+                    }}
+                  >
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>{r.exercise_name}</span>
+                    {r.action === 'up'
+                      ? <span className="mono caption" style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>↑ {r.prev_weight} → {r.next_weight} kg</span>
+                      : <span className="mono caption" style={{ color: 'var(--muted)', flexShrink: 0 }}>⚠ Revisa el peso</span>}
                   </div>
                 ))}
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
-        </motion.div>
-      )}
+          </div>
+        )}
+      </main>
 
-      {/* Exercise Detail Modal */}
+      {/* Exercise detail modal */}
       {detailExercise && (
-        <ExerciseDetailModal
-          exerciseName={detailExercise}
-          onClose={() => setDetailExercise(null)}
-        />
+        <ExerciseDetailModal exerciseName={detailExercise} onClose={() => setDetailExercise(null)} />
       )}
-    </motion.div>
+    </div>
   );
 }
