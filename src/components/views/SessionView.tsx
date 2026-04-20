@@ -210,11 +210,16 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
         try {
           const draft: SessionDraft = JSON.parse(savedDraft);
           if (draft.dayNum === currentDayNum && draft.weekNum === currentWeek) {
-            setSessionName(draft.sessionName);
-            setLogs(draft.logs);
-            setLoadingProgram(false);
-            draftRestoredRef.current = true;
-            return;
+            if (!Array.isArray(draft.logs)) {
+              // Draft is corrupt (non-array logs from old code) — discard it
+              localStorage.removeItem(sessionDraftKey(user.id));
+            } else {
+              setSessionName(draft.sessionName);
+              setLogs(draft.logs);
+              setLoadingProgram(false);
+              draftRestoredRef.current = true;
+              return;
+            }
           }
         } catch {
           localStorage.removeItem(sessionDraftKey(user.id));
@@ -500,7 +505,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
         </div>
 
         {/* ── Exercise log cards ──────────────────────────────── */}
-        {logs.map((log, i) => (
+        {(Array.isArray(logs) ? logs : []).map((log, i) => (
           <div
             key={`log-${i}-${log.exercise_id}`}
             style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}
@@ -687,7 +692,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
         </button>
 
         {/* Save button */}
-        {logs.length > 0 && (
+        {Array.isArray(logs) && logs.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <button
               onClick={handleSave}
