@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useBreakpoint';
-import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/noEquipmentAdapter';
+import { deriveEngineProfile, generateNoEquipmentProgram, NO_EQUIPMENT_DEFAULT_EXERCISES } from '../../engine/noEquipmentAdapter';
 import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
 import type { Tab } from '../MainShell';
@@ -34,7 +34,8 @@ export interface SessionLogEntry {
 
 interface ProgramDayExercise {
   exercise_id?: string;
-  name?: string;
+  exercise_name?: string;
+  name?: string; // legacy alias — some older rows may still use this
   sets?: number;
   reps_min?: number;
   reps_max?: number;
@@ -206,7 +207,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
         if (dayData) {
           setNextDayName(dayData.day_name);
-          if (dayData.exercises) setTodayExercises(dayData.exercises as ProgramDayExercise[]);
+          const exArr = dayData.exercises;
+          if (Array.isArray(exArr)) setTodayExercises(exArr as ProgramDayExercise[]);
         }
       }
 
@@ -283,6 +285,17 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     if (!user) return;
     setAdjusting(true);
     try {
+      // Pre-seed all band/bodyweight exercises so the engine can always find them
+      await supabase.from('exercises').upsert(
+        NO_EQUIPMENT_DEFAULT_EXERCISES.map(ex => ({
+          user_id: user.id,
+          name: ex.name,
+          category: ex.category,
+          status: 'YES' as const,
+        })),
+        { onConflict: 'user_id,name', ignoreDuplicates: true }
+      );
+
       const [{ data: profile }, { data: exercises }] = await Promise.all([
         supabase.from('profiles').select('training_experience, session_minutes, goal').eq('id', user.id).single(),
         supabase.from('exercises').select('*').eq('user_id', user.id).in('status', ['YES', 'SUB'])
@@ -395,10 +408,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
               <div className="mono caption" style={{ opacity: .5 }}>EJERCICIOS</div>
               <div className="d-m" style={{ marginTop: 4 }}>{todayExercises.length || '—'}</div>
             </div>
-            <div>
-              <div className="mono caption" style={{ opacity: .5 }}>SERIES</div>
-              <div className="d-m" style={{ marginTop: 4 }}>{todayExercises.reduce((a, e) => a + (e.sets || 0), 0) || '—'}</div>
-            </div>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
@@ -432,7 +441,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
               <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '40px 1fr 100px 100px 80px', gap: isMobile ? '8px 12px' : 16, padding: isMobile ? '14px 16px' : '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
                 {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>}
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.name || '—'}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.exercise_name || e.name || '—'}</div>
                   {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''} · {e.weight ? `${e.weight} kg` : 'BW'}</div>}
                 </div>
                 {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>}

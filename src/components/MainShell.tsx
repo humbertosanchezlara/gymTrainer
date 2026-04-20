@@ -158,13 +158,6 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
               </button>
             );
           })}
-          {/* FAB for new session */}
-          <button onClick={() => goToSession()} className="bottom-nav-btn" style={{ color: 'var(--accent)' }}>
-            <div style={{ width: 36, height: 36, borderRadius: 999, background: 'var(--ink)', color: 'var(--paper)', display: 'grid', placeItems: 'center', marginBottom: -2 }}>
-              <Plus size={18}/>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--muted)' }}>Sesión</span>
-          </button>
         </nav>
       )}
 
