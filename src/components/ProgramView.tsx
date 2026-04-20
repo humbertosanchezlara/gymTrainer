@@ -4,8 +4,10 @@ import { supabase } from '../lib/supabase';
 import type { Program, ProgramDay, ProgramDayExercise } from '../types';
 import { BLOCKS } from '../engine/programGenerator';
 import { Loader2, ChevronDown } from 'lucide-react';
+import { useIsMobile } from '../hooks/useBreakpoint';
 
 export default function ProgramView() {
+  const isMobile = useIsMobile();
   const { user } = useAuth();
   const [program, setProgram] = useState<Program | null>(null);
   const [days, setDays] = useState<ProgramDay[]>([]);
@@ -95,7 +97,7 @@ export default function ProgramView() {
       </div>
 
       {/* Block bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: '4fr 4fr 3fr 1fr', gap: 4 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '4fr 4fr 3fr 1fr', gap: 4 }}>
         {BLOCKS.map((block, i) => {
           const isPico = i === 2;
           const isDeload = i === 3;
@@ -117,41 +119,44 @@ export default function ProgramView() {
       </div>
 
       {/* Week strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${totalWeeks}, 1fr)`, gap: 4 }}>
-        {Array.from({ length: totalWeeks }).map((_, i) => {
-          const w = i + 1;
-          const isSel = selectedWeek === w;
-          const isCur = currentWeek === w;
-          const block = BLOCKS.find(b => b.weeks.includes(w));
-          return (
-            <button key={w} onClick={() => setSelectedWeek(w)} style={{
-              padding: '20px 8px',
-              background: isSel ? 'var(--ink)' : 'transparent',
-              color: isSel ? 'var(--paper)' : 'var(--ink)',
-              border: '1px solid',
-              borderColor: isSel ? 'var(--ink)' : isCur ? 'var(--accent)' : 'var(--rule)',
-              borderRadius: 8,
-              cursor: 'pointer',
-              fontFamily: 'var(--sans)',
-              display: 'flex',
-              flexDirection: 'column' as const,
-              alignItems: 'flex-start',
-              gap: 8,
-              transition: 'background .15s, color .15s',
-            }}>
-              <div className="mono caption" style={{ opacity: .6 }}>SEM</div>
-              <div className="serif" style={{ fontSize: 28, lineHeight: 1, fontStyle: 'italic' }}>{w}</div>
-              <div className="caption mono" style={{ opacity: .5, fontSize: 9 }}>
-                {block?.name.slice(0, 3).toUpperCase()}
-              </div>
-            </button>
-          );
-        })}
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${totalWeeks}, 1fr)`, gap: 4, minWidth: isMobile ? totalWeeks * 56 : undefined }}>
+          {Array.from({ length: totalWeeks }).map((_, i) => {
+            const w = i + 1;
+            const isSel = selectedWeek === w;
+            const isCur = currentWeek === w;
+            const block = BLOCKS.find(b => b.weeks.includes(w));
+            return (
+              <button key={w} onClick={() => setSelectedWeek(w)} style={{
+                padding: isMobile ? '12px 4px' : '20px 8px',
+                background: isSel ? 'var(--ink)' : 'transparent',
+                color: isSel ? 'var(--paper)' : 'var(--ink)',
+                border: '1px solid',
+                borderColor: isSel ? 'var(--ink)' : isCur ? 'var(--accent)' : 'var(--rule)',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontFamily: 'var(--sans)',
+                display: 'flex',
+                flexDirection: 'column' as const,
+                alignItems: 'flex-start',
+                gap: isMobile ? 4 : 8,
+                transition: 'background .15s, color .15s',
+                minWidth: isMobile ? 52 : undefined,
+              }}>
+                <div className="mono caption" style={{ opacity: .6, fontSize: isMobile ? 8 : undefined }}>SEM</div>
+                <div className="serif" style={{ fontSize: isMobile ? 20 : 28, lineHeight: 1, fontStyle: 'italic' }}>{w}</div>
+                {!isMobile && <div className="caption mono" style={{ opacity: .5, fontSize: 9 }}>
+                  {block?.name.slice(0, 3).toUpperCase()}
+                </div>}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Selected week detail */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 24 }}>
-        <div style={{ gridColumn: 'span 4' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 2fr', gap: 24 }}>
+        <div>
           <div className="uc" style={{ color: 'var(--muted)' }}>Semana {selectedWeek}</div>
           <h2 className="d-l" style={{ margin: 0, marginTop: 8 }}>{selectedBlock.name}</h2>
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -166,7 +171,7 @@ export default function ProgramView() {
           </div>
         </div>
 
-        <div style={{ gridColumn: 'span 8' }}>
+        <div>
           <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
             {days.map((day, i) => {
               const exercises = (day.exercises || []) as ProgramDayExercise[];
@@ -178,9 +183,9 @@ export default function ProgramView() {
                     style={{
                       width: '100%',
                       display: 'grid',
-                      gridTemplateColumns: '60px 1fr 80px 24px',
-                      gap: 16,
-                      padding: '20px 24px',
+                      gridTemplateColumns: isMobile ? '1fr 24px' : '60px 1fr 80px 24px',
+                      gap: isMobile ? 8 : 16,
+                      padding: isMobile ? '16px' : '20px 24px',
                       alignItems: 'center',
                       borderTop: i === 0 ? 'none' : '1px solid var(--rule)',
                       background: 'transparent',
@@ -194,22 +199,27 @@ export default function ProgramView() {
                       textAlign: 'left',
                     }}
                   >
-                    <span className="mono uc" style={{ color: 'var(--muted)' }}>Día {day.day_number}</span>
-                    <span className="d-s" style={{ fontWeight: 600 }}>{day.day_name}</span>
-                    <span className="mono caption">{exercises.length > 0 ? `${exercises.length} ej.` : '—'}</span>
+                    {!isMobile && <span className="mono uc" style={{ color: 'var(--muted)' }}>Día {day.day_number}</span>}
+                    <div>
+                      <span className="d-s" style={{ fontWeight: 600 }}>{day.day_name}</span>
+                      {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>Día {day.day_number} · {exercises.length > 0 ? `${exercises.length} ej.` : '—'}</div>}
+                    </div>
+                    {!isMobile && <span className="mono caption">{exercises.length > 0 ? `${exercises.length} ej.` : '—'}</span>}
                     <ChevronDown size={16} style={{ color: 'var(--muted)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
                   </button>
 
                   {isExpanded && exercises.length > 0 && (
                     <div style={{ borderTop: '1px solid var(--rule)', background: 'var(--paper-2)' }}>
                       {exercises.map((ex, ei) => (
-                        <div key={ei} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 80px 80px', gap: 12, padding: '14px 24px', borderTop: ei === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
-                          <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(ei+1).padStart(2,'0')}</span>
+                        <div key={ei} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '32px 1fr 80px 80px', gap: isMobile ? '8px 12px' : 12, padding: isMobile ? '12px 16px' : '14px 24px', borderTop: ei === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
+                          {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(ei+1).padStart(2,'0')}</span>}
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 14 }}>{ex.exercise_name}</div>
-                            {ex.role && <div className="caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{ex.role}</div>}
+                            {isMobile
+                              ? <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{ex.sets}×{ex.reps_min}{ex.reps_max && ex.reps_max !== ex.reps_min ? `–${ex.reps_max}` : ''}{ex.role ? ` · ${ex.role}` : ''}</div>
+                              : ex.role && <div className="caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{ex.role}</div>}
                           </div>
-                          <div className="mono" style={{ fontSize: 13 }}>{ex.sets}×{ex.reps_min}{ex.reps_max && ex.reps_max !== ex.reps_min ? `–${ex.reps_max}` : ''}</div>
+                          {!isMobile && <div className="mono" style={{ fontSize: 13 }}>{ex.sets}×{ex.reps_min}{ex.reps_max && ex.reps_max !== ex.reps_min ? `–${ex.reps_max}` : ''}</div>}
                           <div className="mono caption" style={{ color: 'var(--accent)' }}>{ex.rpe ? `RPE ${ex.rpe}` : ''}</div>
                         </div>
                       ))}

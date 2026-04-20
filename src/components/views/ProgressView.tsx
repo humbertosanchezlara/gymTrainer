@@ -3,11 +3,13 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import type { Session, SessionLog, WorkingWeight, Exercise } from '../../types';
 import { Loader2, ChevronDown } from 'lucide-react';
+import { useIsMobile } from '../../hooks/useBreakpoint';
 
 type SessionWithLogs = Session & { logs: (SessionLog & { exercise: Exercise })[] };
 
 export default function ProgressView() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [sessions, setSessions] = useState<SessionWithLogs[]>([]);
   const [weights, setWeights] = useState<WorkingWeight[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,14 +57,14 @@ export default function ProgressView() {
 
       {/* Summary stats */}
       {sessions.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 0, border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
           {[
             { k: 'Sesiones', v: String(sessions.length), sub: 'registradas' },
             { k: 'Última sesión', v: sessions.length > 0 ? new Date(sessions[0].date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '—', sub: sessions[0]?.name ?? '' },
             { k: 'Pesos activos', v: String(weights.length), sub: 'ejercicios' },
             { k: 'Bloque actual', v: sessions[0]?.block_num ? `B${sessions[0].block_num}` : '—', sub: sessions[0]?.week_num ? `Semana ${sessions[0].week_num}` : '' },
           ].map((m, i) => (
-            <div key={m.k} style={{ padding: 24, borderLeft: i === 0 ? 'none' : '1px solid var(--rule)' }}>
+            <div key={m.k} style={{ padding: isMobile ? 16 : 24, borderLeft: isMobile ? (i % 2 === 0 ? 'none' : '1px solid var(--rule)') : (i === 0 ? 'none' : '1px solid var(--rule)'), borderTop: isMobile && i >= 2 ? '1px solid var(--rule)' : 'none' }}>
               <div className="uc" style={{ color: 'var(--muted)' }}>{m.k}</div>
               <div className="d-l" style={{ marginTop: 8, fontWeight: 600 }}>{m.v}</div>
               <div className="caption" style={{ color: 'var(--muted)', marginTop: 4 }}>{m.sub}</div>
@@ -105,27 +107,36 @@ export default function ProgressView() {
                 <div key={s.id}>
                   <button
                     onClick={() => setExpandedSession(isOpen ? null : s.id)}
-                    style={{ width: '100%', display: 'grid', gridTemplateColumns: '80px 1fr 120px 24px', gap: 16, padding: '20px 24px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', background: 'transparent', border: 'none', borderTopColor: 'var(--rule)', borderTopWidth: i === 0 ? 0 : 1, borderTopStyle: 'solid', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)', textAlign: 'left' }}
+                    style={{ width: '100%', display: 'grid', gridTemplateColumns: isMobile ? '1fr 24px' : '80px 1fr 120px 24px', gap: isMobile ? 8 : 16, padding: isMobile ? '14px 16px' : '20px 24px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', background: 'transparent', border: 'none', borderTopColor: 'var(--rule)', borderTopWidth: i === 0 ? 0 : 1, borderTopStyle: 'solid', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)', textAlign: 'left' }}
                   >
-                    <span className="mono caption" style={{ color: 'var(--muted)' }}>
+                    {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>
                       {new Date(s.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
-                    </span>
-                    <span className="d-s" style={{ fontWeight: 600 }}>{s.name}</span>
-                    <span className="mono caption" style={{ color: 'var(--muted)' }}>
+                    </span>}
+                    <div>
+                      <span className="d-s" style={{ fontWeight: 600 }}>{s.name}</span>
+                      {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>
+                        {new Date(s.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                        {s.block_num ? ` · B${s.block_num} Sem ${s.week_num}` : ''}
+                      </div>}
+                    </div>
+                    {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>
                       {s.block_num ? `B${s.block_num} Sem ${s.week_num}` : '—'}
-                    </span>
+                    </span>}
                     <ChevronDown size={16} style={{ color: 'var(--muted)', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
                   </button>
 
                   {isOpen && s.logs && s.logs.length > 0 && (
                     <div style={{ borderTop: '1px solid var(--rule)', background: 'var(--paper-2)' }}>
                       {s.logs.map((log, li) => (
-                        <div key={log.id} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px 60px', gap: 12, padding: '14px 24px', borderTop: li === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
-                          <div style={{ fontSize: 14, fontWeight: 500 }}>
-                            {(log.exercise as unknown as { name?: string })?.name ?? '—'}
+                        <div key={log.id} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '1fr 80px 80px 60px', gap: isMobile ? '8px 12px' : 12, padding: isMobile ? '12px 16px' : '14px 24px', borderTop: li === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 500 }}>
+                              {(log.exercise as unknown as { name?: string })?.name ?? '—'}
+                            </div>
+                            {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{log.sets} × {log.reps_per_set} · {log.weight} kg</div>}
                           </div>
-                          <div className="mono" style={{ fontSize: 13 }}>{log.sets} × {log.reps_per_set}</div>
-                          <div className="mono" style={{ fontSize: 13 }}>{log.weight} kg</div>
+                          {!isMobile && <div className="mono" style={{ fontSize: 13 }}>{log.sets} × {log.reps_per_set}</div>}
+                          {!isMobile && <div className="mono" style={{ fontSize: 13 }}>{log.weight} kg</div>}
                           <div className="mono caption" style={{ color: 'var(--muted)' }}>RPE {log.rpe ?? '—'}</div>
                         </div>
                       ))}
