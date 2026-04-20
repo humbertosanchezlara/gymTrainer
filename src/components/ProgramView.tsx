@@ -174,7 +174,7 @@ export default function ProgramView() {
         <div>
           <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
             {days.map((day, i) => {
-              const exercises = (day.exercises || []) as ProgramDayExercise[];
+              const exercises = (Array.isArray(day.exercises) ? day.exercises : []) as ProgramDayExercise[];
               const isExpanded = expandedDay === day.day_number;
               return (
                 <div key={day.id}>
