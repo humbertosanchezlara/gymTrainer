@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
+import { useIsMobile } from '../../hooks/useBreakpoint';
 import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/noEquipmentAdapter';
 import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
@@ -149,6 +150,7 @@ function getBlockInfo(week: number): string {
 export default function DashboardView({ onNavigate, onStartSession, onStartTravel }: DashboardViewProps) {
   const { user } = useAuth();
   const toast = useToast();
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<Array<{ id: string; name: string; date: string; block_num: number | null }>>([]);
   const [nextDayName, setNextDayName] = useState<string | null>(null);
@@ -349,11 +351,11 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   }
 
   return (
-    <div className="forge-fade" style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 24 }}>
+    <div className="forge-fade" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Header row */}
-      <div style={{ gridColumn: 'span 12', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16, flexWrap: 'wrap' as const, gap: 8 }}>
         <div>
           <div className="uc" style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>
             Buenos días{user?.email ? `, ${user.email.split('@')[0]}` : ''}
@@ -367,7 +369,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
       {/* Program complete banner */}
       {programComplete && (
-        <div style={{ gridColumn: 'span 12', border: '1px solid var(--accent)', borderRadius: 12, padding: 24, background: 'color-mix(in oklab, var(--accent), transparent 94%)', display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
+        <div style={{ border: '1px solid var(--accent)', borderRadius: 12, padding: 24, background: 'color-mix(in oklab, var(--accent), transparent 94%)', display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
           <div>
             <div className="uc" style={{ color: 'var(--accent)', marginBottom: 6 }}>¡Programa completado!</div>
             <div className="d-s" style={{ fontWeight: 600 }}>Completaste las <span className="serif" style={{ fontStyle: 'italic', color: 'var(--accent)' }}>{completedWeeks} semanas</span>. Hora de un nuevo ciclo.</div>
@@ -379,7 +381,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       )}
 
       {/* Primary action card */}
-      <div style={{ gridColumn: 'span 12', background: 'var(--ink)', color: 'var(--paper)', borderRadius: 16, padding: '40px', display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 32, alignItems: 'end', minHeight: 320 }}>
+      <div style={{ background: 'var(--ink)', color: 'var(--paper)', borderRadius: 16, padding: isMobile ? '28px 24px' : '40px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: isMobile ? 24 : 32, alignItems: 'end', minHeight: isMobile ? 'auto' : 320 }}>
         <div>
           <div className="uc" style={{ opacity: .6, marginBottom: 24 }}>
             {programComplete ? 'Entrena hoy' : 'Hoy entrenas'}
@@ -417,22 +419,24 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         </div>
       </div>
 
-      {/* Exercise preview */}
+      {/* Exercise preview + side rail */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : todayExercises.length > 0 ? '1fr 280px' : '1fr', gap: 24, alignItems: 'start' }}>
       {todayExercises.length > 0 && (
-        <div style={{ gridColumn: 'span 8' }}>
+        <div>
           <div className="uc" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
             <span>Ejercicios de hoy</span>
             <span className="mono">{todayExercises.length} de {todayExercises.length}</span>
           </div>
           <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
             {todayExercises.map((e, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 100px 100px 80px', gap: 16, padding: '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
-                <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '40px 1fr 100px 100px 80px', gap: isMobile ? '8px 12px' : 16, padding: isMobile ? '14px 16px' : '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
+                {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>}
                 <div>
-                  <div className="d-s" style={{ fontWeight: 600 }}>{e.name || '—'}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.name || '—'}</div>
+                  {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''} · {e.weight ? `${e.weight} kg` : 'BW'}</div>}
                 </div>
-                <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>
-                <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg` : 'BW'}</div>
+                {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>}
+                {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg` : 'BW'}</div>}
                 <div className="mono caption" style={{ color: 'var(--accent)', fontWeight: 600 }}>{e.rpe ? `RPE ${e.rpe}` : ''}</div>
               </div>
             ))}
@@ -461,7 +465,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       )}
 
       {/* Side rail */}
-      <div style={{ gridColumn: todayExercises.length > 0 ? 'span 4' : 'span 12', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Week progress */}
         <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: 24 }}>
           <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16 }}>Esta semana</div>
@@ -493,6 +497,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           <ArrowRight size={16}/>
         </button>
       </div>
+      </div>{/* /exercise preview + side rail grid */}
 
       {/* Travel setup modal */}
       <Modal

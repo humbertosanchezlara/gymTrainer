@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ArrowRight, Loader2 } from 'lucide-react';
+import { useIsMobile } from '../hooks/useBreakpoint';
 
 type Mode = 'login' | 'signup' | 'forgot';
 
@@ -11,6 +12,7 @@ interface AuthScreenProps {
 
 export default function AuthScreen({ initialMode = 'login', onBack }: AuthScreenProps) {
   const { signIn, signUp, resetPassword } = useAuth();
+  const isMobile = useIsMobile();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,9 +49,9 @@ export default function AuthScreen({ initialMode = 'login', onBack }: AuthScreen
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '1.1fr 1fr', background: 'var(--paper)' }}>
-      {/* Left: brand panel */}
-      <aside style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '40px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', minHeight: '100vh' }}>
+    <div style={{ minHeight: '100vh', display: isMobile ? 'flex' : 'grid', flexDirection: isMobile ? 'column' : undefined, gridTemplateColumns: isMobile ? undefined : '1.1fr 1fr', background: 'var(--paper)' }}>
+      {/* Left: brand panel — hidden on mobile */}
+      <aside style={{ background: 'var(--ink)', color: 'var(--paper)', padding: isMobile ? '24px 24px 32px' : '40px', display: isMobile ? 'block' : 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', minHeight: isMobile ? 'auto' : '100vh' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {onBack ? (
             <button onClick={onBack} className="btn btn-ghost" style={{ color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.2)' }}>← Volver</button>
@@ -57,18 +59,29 @@ export default function AuthScreen({ initialMode = 'login', onBack }: AuthScreen
           <span className="mono caption" style={{ color: 'rgba(241,237,228,0.4)' }}>Forge / Auth</span>
         </div>
 
-        <div>
-          <div className="uc" style={{ opacity: .6, marginBottom: 24 }}>
-            {mode === 'signup' ? 'Crea tu cuenta' : 'Bienvenido de vuelta'}
+        {!isMobile && (
+          <div>
+            <div className="uc" style={{ opacity: .6, marginBottom: 24 }}>
+              {mode === 'signup' ? 'Crea tu cuenta' : 'Bienvenido de vuelta'}
+            </div>
+            <h1 className="d-hero" style={{ margin: 0, color: 'var(--paper)' }}>
+              {mode === 'signup'
+                ? <><span>Vamos a</span><br/><span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>construir</span> algo.</>
+                : <><span>Ya está</span><br/><span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>todo listo</span>.</>}
+            </h1>
           </div>
-          <h1 className="d-hero" style={{ margin: 0, color: 'var(--paper)' }}>
-            {mode === 'signup'
-              ? <><span>Vamos a</span><br/><span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>construir</span> algo.</>
-              : <><span>Ya está</span><br/><span className="serif" style={{ fontStyle: 'italic', fontWeight: 400 }}>todo listo</span>.</>}
-          </h1>
-        </div>
+        )}
 
-        <div style={{ borderTop: '1px solid rgba(241,237,228,0.15)', paddingTop: 24, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        {isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 26, height: 26, background: 'var(--paper)', borderRadius: 5, display: 'grid', placeItems: 'center' }}>
+              <span className="serif" style={{ fontSize: 20, lineHeight: 1, fontStyle: 'italic', color: 'var(--ink)' }}>F</span>
+            </div>
+            <span className="uc" style={{ color: 'var(--paper)', fontSize: 12 }}>Forge</span>
+          </div>
+        )}
+
+        <div style={{ borderTop: '1px solid rgba(241,237,228,0.15)', paddingTop: 24, marginTop: isMobile ? 16 : 0, display: isMobile ? 'none' : 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
           {[
             { v: '12·', label: 'Semanas' },
             { v: '4·',  label: 'Bloques' },
@@ -83,7 +96,7 @@ export default function AuthScreen({ initialMode = 'login', onBack }: AuthScreen
       </aside>
 
       {/* Right: form */}
-      <main style={{ padding: '40px', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'var(--paper)' }}>
+      <main style={{ padding: isMobile ? '32px 24px 48px' : '40px', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'var(--paper)', flex: isMobile ? 1 : undefined }}>
         <div style={{ maxWidth: 440, margin: '0 auto', width: '100%' }}>
           <div className="uc" style={{ marginBottom: 24, color: 'var(--muted)' }}>
             {mode === 'forgot' ? 'Recuperar acceso' : mode === 'signup' ? 'Nuevo en Forge' : 'Iniciar sesión'}
