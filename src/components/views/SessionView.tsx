@@ -7,7 +7,7 @@ import type { Exercise } from '../../types';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { getCatalogEntry } from '../../data/exerciseCatalog';
 import {
-  Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft,
+  Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft, ArrowRight,
 } from 'lucide-react';
 import type { Tab } from '../MainShell';
 
@@ -192,11 +192,11 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
 
       // Intercept for travel draft
       if (travelDraft) {
-        setSessionName('✈️ Rutina de Viaje (Bandas/Corporal)');
+        setSessionName('Sesión Fuera del Gym');
         setDayNum(0);
         setWeekNum(0);
         setBlockNum(0);
-        setBlockName('Modo Viaje');
+        setBlockName('Fuera del Gym');
         setLogs(travelDraft);
         setLoadingProgram(false);
         setHasProgram(true);
@@ -392,6 +392,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
       {/* ── Top bar ─────────────────────────────────────────── */}
       <header className="forge-topnav">
         <div style={{
+          position: 'relative',
           maxWidth: 720, margin: '0 auto',
           padding: isMobile ? '0 16px' : '0 32px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56,
@@ -399,16 +400,31 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
           <button
             onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
             className="btn btn-ghost"
-            style={{ gap: 6, padding: '8px 12px' }}
+            style={{ gap: 6, padding: '8px 12px', flexShrink: 0 }}
           >
             <ArrowLeft size={14} /> Hoy
           </button>
 
           {travelDraft && (
-            <div className="uc" style={{ color: 'var(--accent)', fontSize: 10 }}>✈️ Modo Viaje</div>
+            <div className="uc" style={{
+              position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+              color: 'var(--accent)', fontSize: 10, whiteSpace: 'nowrap',
+            }}>
+              🏃 Fuera del Gym
+            </div>
           )}
 
-          <div style={{ width: 80 }} />
+          <div style={{ width: travelDraft ? 'auto' : 80, flexShrink: 0 }}>
+            {travelDraft && (
+              <button
+                onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
+                className="btn btn-ghost"
+                style={{ fontSize: 12, padding: '6px 10px', gap: 4, color: 'var(--muted)' }}
+              >
+                Ir al gym <ArrowRight size={12} />
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -437,6 +453,26 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
               : 'Registra tu trabajo. Los pesos se actualizan automáticamente.'}
           </div>
         </div>
+
+        {/* Return-to-gym banner */}
+        {travelDraft && (
+          <div style={{
+            border: '1px dashed var(--rule)', borderRadius: 12,
+            padding: '12px 16px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+          }}>
+            <div className="caption" style={{ color: 'var(--muted)' }}>
+              ¿Puedes ir al gym hoy? Sal sin guardar y retoma tu programa.
+            </div>
+            <button
+              onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
+              className="btn btn-ghost"
+              style={{ fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              Ir al gym →
+            </button>
+          </div>
+        )}
 
         {/* Periodization bar */}
         {hasProgram && blockNum > 0 && (
