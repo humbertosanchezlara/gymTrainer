@@ -85,17 +85,6 @@ export default function ProgramView() {
     <div className="forge-fade" style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16 }}>
-        <div>
-          <div className="uc" style={{ color: 'var(--muted)' }}>Programa</div>
-          <h1 className="d-l" style={{ margin: 0, marginTop: 8 }}>{program.name}</h1>
-        </div>
-        <div className="mono caption" style={{ textAlign: 'right' }}>
-          {program.total_weeks} sem · {program.total_days} días/sem
-        </div>
-      </div>
-
       {/* Block bar */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '4fr 4fr 3fr 1fr', gap: 4 }}>
         {BLOCKS.map((block) => {
