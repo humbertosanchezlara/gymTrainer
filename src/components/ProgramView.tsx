@@ -98,19 +98,18 @@ export default function ProgramView() {
 
       {/* Block bar */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '4fr 4fr 3fr 1fr', gap: 4 }}>
-        {BLOCKS.map((block, i) => {
-          const isPico = i === 2;
-          const isDeload = i === 3;
+        {BLOCKS.map((block) => {
+          const isCurrent = block.weeks.includes(currentWeek);
           return (
             <div key={block.name} style={{
               padding: '12px 16px',
-              background: isPico ? 'var(--accent)' : isDeload ? 'transparent' : 'var(--ink)',
-              color: isPico ? 'var(--accent-ink)' : isDeload ? 'var(--ink)' : 'var(--paper)',
-              border: isDeload ? '1px dashed var(--rule)' : 'none',
+              background: isCurrent ? 'var(--ink)' : 'transparent',
+              color: isCurrent ? 'var(--paper)' : 'var(--muted)',
+              border: `1px ${isCurrent ? 'solid var(--ink)' : 'dashed var(--rule)'}`,
               borderRadius: 6,
             }}>
-              <div className="uc" style={{ opacity: .7 }}>{block.name}</div>
-              <div className="mono caption" style={{ marginTop: 4, opacity: .8 }}>
+              <div className="uc" style={{ opacity: isCurrent ? .8 : .6 }}>{block.name}</div>
+              <div className="mono caption" style={{ marginTop: 4, opacity: isCurrent ? .7 : .5 }}>
                 Sem {block.weeks[0]}–{block.weeks[block.weeks.length - 1]}
               </div>
             </div>
@@ -167,6 +166,14 @@ export default function ProgramView() {
             <div>
               <div className="uc" style={{ color: 'var(--muted)', marginBottom: 4 }}>RPE objetivo</div>
               <div className="mono" style={{ fontWeight: 600 }}>{selectedBlock.rpeMin}–{selectedBlock.rpeMax}</div>
+              <div className="caption" style={{ color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+                Esfuerzo percibido (1–10).<br />
+                {selectedBlock.rpeMax <= 7
+                  ? 'Quedan 3+ reps al terminar la serie.'
+                  : selectedBlock.rpeMax <= 8
+                  ? 'Quedan 1–2 reps al terminar la serie.'
+                  : 'Cerca del fallo muscular.'}
+              </div>
             </div>
           </div>
         </div>

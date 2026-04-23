@@ -337,13 +337,13 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         reps_per_set: ex.reps_max || ex.reps_min || 10,
         weight: 0,
         rpe: ex.rpe || 8,
-        notes: ex.notes || 'Modo viaje',
+        notes: ex.notes || 'Fuera del gym',
       }));
 
       onStartTravel(travelDraft);
       setShowTravelSetup(false);
     } catch {
-      toast.error('Error al generar la rutina de viaje.');
+      toast.error('Error al generar la sesión fuera del gym.');
     } finally {
       setAdjusting(false);
     }
@@ -438,7 +438,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           </div>
           <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
             {todayExercises.map((e, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '40px 1fr 100px 100px 80px', gap: isMobile ? '8px 12px' : 16, padding: isMobile ? '14px 16px' : '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '40px 1fr 100px 100px', gap: isMobile ? '4px' : 16, padding: isMobile ? '14px 16px' : '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
                 {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>}
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{e.exercise_name || e.name || '—'}</div>
@@ -446,7 +446,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
                 </div>
                 {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>}
                 {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg` : 'BW'}</div>}
-                <div className="mono caption" style={{ color: 'var(--accent)', fontWeight: 600 }}>{e.rpe ? `RPE ${e.rpe}` : ''}</div>
               </div>
             ))}
           </div>
@@ -529,8 +528,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           <div>
             <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Días por semana fuera</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {[2, 3, 4, 5].map(n => (
-                <button key={n} onClick={() => setTravelDays(n)} className={`btn ${travelDays === n ? 'btn-ink' : 'btn-ghost'}`}>{n} días</button>
+              {[1, 2, 3, 4, 5].map(n => (
+                <button key={n} onClick={() => setTravelDays(n)} className={`btn ${travelDays === n ? 'btn-ink' : 'btn-ghost'}`}>{n} {n === 1 ? 'día' : 'días'}</button>
               ))}
             </div>
           </div>

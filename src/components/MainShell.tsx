@@ -135,7 +135,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
         padding: isMobile ? '20px 16px 90px' : '32px',
         minHeight: `calc(100vh - ${isMobile ? 56 : 64}px)`,
       }}>
-        {tab === 'dashboard' && <DashboardView onNavigate={setTab} onStartSession={goToSession} onStartTravel={(draft) => goToSession(draft)} />}
+        {tab === 'dashboard' && <DashboardView onNavigate={setTab} onStartSession={() => goToSession()} onStartTravel={(draft) => goToSession(draft)} />}
         {tab === 'program'   && <ProgramView />}
         {tab === 'progress'  && <ProgressView />}
         {tab === 'library'   && <LibraryView onProgramDeleted={onProgramDeleted} />}
