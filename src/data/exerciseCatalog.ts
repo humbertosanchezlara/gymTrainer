@@ -420,7 +420,7 @@ export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
   'Aductores (Máquina)': {
     instructions:
       'Siéntate en la máquina con las almohadillas sobre la cara interna de los muslos y las piernas abiertas. Junta las piernas apretando los aductores. Abre lentamente regresando a la posición inicial.',
-    images: [`${IMG}/Adductor/0.jpg`, `${IMG}/Adductor/1.jpg`],
+    images: [],
   },
   'Prensa Horizontal (Máquina)': {
     instructions:

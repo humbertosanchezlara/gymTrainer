@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getCatalogEntry } from '../data/exerciseCatalog';
@@ -17,7 +18,7 @@ export default function ExerciseDetailModal({ exerciseName, onClose }: Props) {
 
   const hasImages = entry.images.length > 0 && !imgError;
 
-  return (
+  return createPortal(
     <AnimatePresence>
       <motion.div
         initial={{ opacity: 0 }}
@@ -102,6 +103,7 @@ export default function ExerciseDetailModal({ exerciseName, onClose }: Props) {
           </div>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
