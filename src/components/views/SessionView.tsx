@@ -7,7 +7,7 @@ import type { Exercise } from '../../types';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { getCatalogEntry } from '../../data/exerciseCatalog';
 import {
-  Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft, ArrowRight,
+  Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft,
 } from 'lucide-react';
 import type { Tab } from '../MainShell';
 
@@ -414,17 +414,7 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
             </div>
           )}
 
-          <div style={{ width: travelDraft ? 'auto' : 80, flexShrink: 0 }}>
-            {travelDraft && (
-              <button
-                onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
-                className="btn btn-ghost"
-                style={{ fontSize: 12, padding: '6px 10px', gap: 4, color: 'var(--muted)' }}
-              >
-                Ir al gym <ArrowRight size={12} />
-              </button>
-            )}
-          </div>
+          <div style={{ width: 80, flexShrink: 0 }} />
         </div>
       </header>
 
