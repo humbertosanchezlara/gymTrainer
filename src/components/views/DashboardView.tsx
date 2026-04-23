@@ -351,8 +351,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
   const weekNum = completedWeeks + 1;
   const blockName = getBlockInfo(weekNum);
-  const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' });
-  const timeStr = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
   if (loading) {
     return (
@@ -366,19 +364,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   return (
     <div className="forge-fade" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
-      {/* Header row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16, flexWrap: 'wrap' as const, gap: 8 }}>
-        <div>
-          <div className="uc" style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>
-            Buenos días{user?.email ? `, ${user.email.split('@')[0]}` : ''}
-          </div>
-          <div className="mono caption" style={{ marginTop: 6 }}>{today} · {timeStr}</div>
-        </div>
-        <div className="mono caption" style={{ textAlign: 'right' }}>
-          Bloque {blockName} · Semana {weekNum}/12{nextDayNum ? ` · Día ${nextDayNum}` : ''}
-        </div>
-      </div>
 
       {/* Program complete banner */}
       {programComplete && (
