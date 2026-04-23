@@ -166,13 +166,19 @@ export default function ProgramView() {
             <div>
               <div className="uc" style={{ color: 'var(--muted)', marginBottom: 4 }}>RPE objetivo</div>
               <div className="mono" style={{ fontWeight: 600 }}>{selectedBlock.rpeMin}–{selectedBlock.rpeMax}</div>
-              <div className="caption" style={{ color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
-                Esfuerzo percibido (1–10).<br />
-                {selectedBlock.rpeMax <= 7
-                  ? 'Quedan 3+ reps al terminar la serie.'
-                  : selectedBlock.rpeMax <= 8
-                  ? 'Quedan 1–2 reps al terminar la serie.'
-                  : 'Cerca del fallo muscular.'}
+              <div className="caption" style={{ color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
+                <strong style={{ color: 'var(--ink)', display: 'block', marginBottom: 4 }}>¿Qué es RPE?</strong>
+                RPE mide cuántas repeticiones te quedaron en el tanque al terminar la serie. No mide el peso ni el dolor — mide tu percepción de cuánto te faltó para el fallo.
+                <span style={{ display: 'block', marginTop: 8 }}>
+                  <strong style={{ color: 'var(--ink)' }}>10</strong> = fallo total · <strong style={{ color: 'var(--ink)' }}>9</strong> = queda 1 · <strong style={{ color: 'var(--ink)' }}>8</strong> = quedan 2 · <strong style={{ color: 'var(--ink)' }}>7</strong> = quedan 3
+                </span>
+                <span style={{ display: 'block', marginTop: 8 }}>
+                  Este bloque entrena a RPE {selectedBlock.rpeMin}–{selectedBlock.rpeMax}: termina cada serie sintiendo que podrías haber hecho{' '}
+                  {selectedBlock.rpeMax <= 7 ? '3 o más repeticiones más.' :
+                   selectedBlock.rpeMax <= 8 ? '2–3 repeticiones más.' :
+                   selectedBlock.rpeMax <= 9 ? '1–2 repeticiones más.' :
+                   '0–1 repeticiones más (al límite).'}
+                </span>
               </div>
             </div>
           </div>

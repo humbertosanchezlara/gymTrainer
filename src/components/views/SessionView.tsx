@@ -457,17 +457,19 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
         {/* Return-to-gym banner */}
         {travelDraft && (
           <div style={{
-            border: '1px dashed var(--rule)', borderRadius: 12,
-            padding: '12px 16px',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+            border: '1px solid var(--rule)', borderRadius: 12,
+            padding: '20px 24px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
+            background: 'color-mix(in oklab, var(--ink), transparent 96%)',
           }}>
-            <div className="caption" style={{ color: 'var(--muted)' }}>
-              ¿Puedes ir al gym hoy? Sal sin guardar y retoma tu programa.
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>¿Puedes ir al gym hoy?</div>
+              <div className="caption" style={{ color: 'var(--muted)' }}>Sal sin guardar para retomar tu programa normal.</div>
             </div>
             <button
               onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
-              className="btn btn-ghost"
-              style={{ fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap', flexShrink: 0 }}
+              className="btn btn-ink"
+              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
             >
               Ir al gym →
             </button>
@@ -527,18 +529,6 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
             </div>
           </div>
         )}
-
-        {/* RPE reference */}
-        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '12px 16px' }}>
-          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 6 }}>RPE — Esfuerzo Percibido</div>
-          <div className="mono caption" style={{ color: 'var(--muted)', lineHeight: 1.7 }}>
-            <strong style={{ color: 'var(--ink)' }}>6</strong> = quedan 4+ reps ·{' '}
-            <strong style={{ color: 'var(--ink)' }}>7</strong> = quedan 3 ·{' '}
-            <strong style={{ color: 'var(--ink)' }}>8</strong> = quedan 2 ·{' '}
-            <strong style={{ color: 'var(--ink)' }}>9</strong> = queda 1 ·{' '}
-            <strong style={{ color: 'var(--ink)' }}>10</strong> = fallo
-          </div>
-        </div>
 
         {/* ── Exercise log cards ──────────────────────────────── */}
         {(Array.isArray(logs) ? logs : []).map((log, i) => (
@@ -698,6 +688,18 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
                   style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--accent)', outline: 'none' }}
                 />
               </div>
+            </div>
+
+            {/* RPE inline hint */}
+            <div style={{ padding: '8px 16px', borderTop: '1px solid var(--rule)', display: 'flex', justifyContent: 'flex-end' }}>
+              <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>
+                RPE {log.rpe} —{' '}
+                {log.rpe >= 10 ? 'fallo muscular' :
+                 log.rpe === 9 ? 'queda 1 rep' :
+                 log.rpe === 8 ? 'quedan 2 reps' :
+                 log.rpe === 7 ? 'quedan 3 reps' :
+                                 'quedan 4+ reps'}
+              </span>
             </div>
           </div>
         ))}
