@@ -4,20 +4,12 @@ import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useBreakpoint';
 import { deriveEngineProfile, generateNoEquipmentProgram, NO_EQUIPMENT_DEFAULT_EXERCISES } from '../../engine/noEquipmentAdapter';
+import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
 import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
 import type { Tab } from '../MainShell';
 
 // ─── Types ────────────────────────────────────────────────
-interface SessionAdjustment {
-  type: 'deload' | 'reduce_time' | 'swap_exercise' | 'swap_specific' | 'general';
-  weightScale?: number;
-  rpeDelta?: number;
-  maxExercises?: number;
-  targetExerciseName?: string;
-  reason: string;
-  details: string;
-}
 
 export interface SessionLogEntry {
   exercise_id: string;
@@ -46,93 +38,6 @@ interface ProgramDayExercise {
   notes?: string;
 }
 
-// ─── Smart Adjustment Parser ─────────────────────────────
-function parseAdjustmentRequest(text: string): SessionAdjustment[] {
-  const lower = text.toLowerCase();
-  const adjustments: SessionAdjustment[] = [];
-
-  const fatigueKeywords = ['cansado', 'cansada', 'fatigado', 'fatigada', 'pesado', 'pesada',
-    'agotado', 'agotada', 'dormí', 'dormi', 'sueño', 'sueno', 'desvelé', 'desvele',
-    'no descansé', 'no descanse', 'mal dormido', 'mal dormida', 'horas de sueño',
-    'exhausto', 'exhausta', 'drenado', 'drenada'];
-  const sleepMatch = lower.match(/dorm[ií]\s*(\d+)\s*hora/);
-  const hasFatigue = fatigueKeywords.some(k => lower.includes(k));
-  const lowSleep = sleepMatch && parseInt(sleepMatch[1]) < 6;
-
-  if (hasFatigue || lowSleep) {
-    const severity = lowSleep && parseInt(sleepMatch![1]) <= 4 ? 0.75 : 0.80;
-    adjustments.push({
-      type: 'deload', weightScale: severity, rpeDelta: -1.5,
-      reason: 'Fatiga detectada',
-      details: lowSleep
-        ? `Descanso insuficiente (${sleepMatch![1]}h). Peso reducido ${Math.round((1 - severity) * 100)}%, RPE -1.5`
-        : `Fatiga general. Peso reducido ${Math.round((1 - severity) * 100)}%, RPE -1.5`,
-    });
-  }
-
-  const painKeywords = ['dolor', 'duele', 'molestia', 'lesión', 'lesion', 'lastimé', 'lastime',
-    'inflamado', 'inflamada', 'pinzamiento', 'contractura'];
-  if (painKeywords.some(k => lower.includes(k))) {
-    adjustments.push({
-      type: 'deload', weightScale: 0.70, rpeDelta: -2,
-      reason: 'Dolor / molestia reportada',
-      details: 'Peso reducido 30%, RPE -2. Presta atención a la técnica y detente si el dolor persiste.',
-    });
-  }
-
-  const timeMatch = lower.match(/(\d+)\s*min/);
-  const timeKeywords = ['poco tiempo', 'rápido', 'rapido', 'corta', 'prisa', 'apurado', 'apurada',
-    'menos tiempo', 'acortar', 'reducir tiempo'];
-  if (timeKeywords.some(k => lower.includes(k)) || timeMatch) {
-    const minutes = timeMatch ? parseInt(timeMatch[1]) : 30;
-    const maxEx = Math.max(3, Math.floor((minutes - 5) / 7));
-    adjustments.push({
-      type: 'reduce_time', maxExercises: maxEx,
-      reason: 'Sesión reducida',
-      details: timeMatch
-        ? `Ajustada a ${minutes} min (~${maxEx} ejercicios). Se priorizan compuestos.`
-        : `Sesión acortada (~${maxEx} ejercicios). Se priorizan compuestos.`,
-    });
-  }
-
-  if (['no tengo', 'sin barra', 'sin mancuerna', 'no hay', 'falta equipo', 'equipo', 'máquina', 'maquina', 'rota', 'ocupada', 'ocupado'].some(k => lower.includes(k))) {
-    adjustments.push({
-      type: 'swap_exercise',
-      reason: 'Problema de equipamiento',
-      details: 'Los ejercicios que requieran el equipo faltante se sustituirán por alternativas disponibles.',
-    });
-  }
-
-  const swapPatterns = [
-    /(?:cambiar?|quitar?|reemplazar?|sustituir?|cambia|quita|reemplaza|sustituye)\s+(?:el\s+|la\s+|los\s+|las\s+)?(.{4,40}?)(?:\s+por\s+|\s+con\s+|\s*$)/i,
-    /(?:en lugar de|en vez de)\s+(?:el\s+|la\s+)?(.{4,40}?)(?:\s*$|\s*,)/i,
-    /(?:no quiero|no me gusta)\s+(?:el\s+|la\s+)?(.{4,40}?)(?:\s*$|\s*,)/i,
-  ];
-  for (const pattern of swapPatterns) {
-    const m = text.match(pattern);
-    if (m && m[1]) {
-      const target = m[1].trim().replace(/[.,!?]+$/, '');
-      if (target.length >= 3) {
-        adjustments.push({
-          type: 'swap_specific', targetExerciseName: target,
-          reason: 'Cambio de ejercicio',
-          details: `Se buscará un sustituto para "${target}" dentro de la misma categoría muscular.`,
-        });
-        break;
-      }
-    }
-  }
-
-  if (adjustments.length === 0) {
-    adjustments.push({
-      type: 'general', weightScale: 0.90, rpeDelta: -1,
-      reason: 'Ajuste general',
-      details: 'Se aplicó una reducción moderada: peso -10%, RPE -1.',
-    });
-  }
-
-  return adjustments;
-}
 
 // ─── Component ────────────────────────────────────────────
 interface DashboardViewProps {
@@ -220,7 +125,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     if (!adjustInput.trim() || !user) return;
     setAdjusting(true);
     try {
-      const adjustments = parseAdjustmentRequest(adjustInput);
+      const exerciseNames = todayExercises.map(e => e.exercise_name || e.name || '').filter(Boolean);
+      const adjustments = await parseAdjustmentWithAI(adjustInput, exerciseNames);
       const { data: prog } = await supabase
         .from('programs').select('id, total_days').eq('user_id', user.id)
         .order('created_at', { ascending: false }).limit(1).maybeSingle();
@@ -379,38 +285,60 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       )}
 
       {/* Primary action card */}
-      <div style={{ background: 'var(--ink)', color: 'var(--paper)', borderRadius: 16, padding: isMobile ? '28px 24px' : '40px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr', gap: isMobile ? 24 : 32, alignItems: 'end', minHeight: isMobile ? 'auto' : 320 }}>
-        <div>
-          <div className="uc" style={{ opacity: .6, marginBottom: 24 }}>
-            {programComplete ? 'Entrena hoy' : 'Hoy entrenas'}
+      <div style={{ background: 'var(--ink)', color: 'var(--paper)', borderRadius: 16, padding: isMobile ? '20px' : '28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* 1 — compact info row */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span className="uc" style={{ opacity: .5, fontSize: 11 }}>{programComplete ? 'Entrena hoy' : 'Hoy entrenas'}</span>
+            <span style={{ fontWeight: 700, fontSize: 17, letterSpacing: '-0.02em' }}>
+              {nextDayName || (programComplete ? 'Sesión libre' : 'Tu rutina')}
+            </span>
           </div>
-          <h1 className="d-xl" style={{ margin: 0 }}>
-            {nextDayName || (programComplete ? 'Sesión libre' : 'Tu rutina')}
-            {nextDayName ? '.' : ''}
-          </h1>
-          <div style={{ display: 'flex', gap: 24, marginTop: 32, flexWrap: 'wrap' }}>
-            <div>
-              <div className="mono caption" style={{ opacity: .5 }}>EJERCICIOS</div>
-              <div className="d-m" style={{ marginTop: 4 }}>{todayExercises.length || '—'}</div>
-            </div>
-          </div>
+          {todayExercises.length > 0 && (
+            <span className="mono caption" style={{ opacity: .45 }}>{todayExercises.length} ejercicios</span>
+          )}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
+
+        {/* 2 — start button */}
+        <button
+          onClick={onStartSession}
+          className="btn btn-accent btn-xl"
+          style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
+        >
+          Empezar entrenamiento <ArrowRight size={20}/>
+        </button>
+
+        {/* 3 — AI adjust chat */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="uc" style={{ opacity: .45, fontSize: 10 }}>Ajustar sesión de hoy</div>
+          <textarea
+            value={adjustInput}
+            onChange={e => setAdjustInput(e.target.value)}
+            placeholder='Ej: "me duele el hombro" · "solo tengo 30 min" · "estoy muy cansado"'
+            rows={3}
+            className="forge-field"
+            style={{ resize: 'none', background: 'rgba(241,237,228,0.07)', border: '1px solid rgba(241,237,228,0.15)', color: 'var(--paper)', borderRadius: 10, padding: '12px 14px', fontSize: 14, lineHeight: 1.5, fontFamily: 'var(--sans)', width: '100%', boxSizing: 'border-box' }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && adjustInput.trim()) { e.preventDefault(); handleAdjust(); } }}
+          />
           <button
-            onClick={onStartSession}
-            className="btn btn-accent btn-xl"
-            style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
+            onClick={handleAdjust}
+            disabled={!adjustInput.trim() || adjusting}
+            className="btn btn-ghost"
+            style={{ alignSelf: 'flex-end', color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.2)', opacity: (!adjustInput.trim() || adjusting) ? .4 : 1 }}
           >
-            Empezar entrenamiento <ArrowRight size={20}/>
-          </button>
-          <button
-            onClick={() => setShowTravelSetup(true)}
-            className="btn btn-ghost btn-lg"
-            style={{ width: '100%', justifyContent: 'center', color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.2)' }}
-          >
-            Sesión fuera del gym
+            {adjusting ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> : 'Ajustar con IA'}
           </button>
         </div>
+
+        {/* 4 — travel mode */}
+        <button
+          onClick={() => setShowTravelSetup(true)}
+          className="btn btn-ghost btn-lg"
+          style={{ width: '100%', justifyContent: 'center', color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.15)', marginTop: 2 }}
+        >
+          Sesión fuera del gym
+        </button>
       </div>
 
       {/* Exercise preview + side rail */}
@@ -435,25 +363,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
             ))}
           </div>
 
-          {/* Quick adjust */}
-          <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-            <input
-              value={adjustInput}
-              onChange={e => setAdjustInput(e.target.value)}
-              placeholder='Ej: "poco tiempo" o "me duele el hombro"'
-              className="forge-field"
-              style={{ flex: 1 }}
-              onKeyDown={e => { if (e.key === 'Enter' && adjustInput.trim()) handleAdjust(); }}
-            />
-            <button
-              onClick={handleAdjust}
-              disabled={!adjustInput.trim() || adjusting}
-              className="btn btn-ink"
-              style={{ opacity: (!adjustInput.trim() || adjusting) ? .4 : 1 }}
-            >
-              {adjusting ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> : 'Ajustar'}
-            </button>
-          </div>
         </div>
       )}
 
