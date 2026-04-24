@@ -16,7 +16,7 @@ export async function searchExercise(query: string): Promise<ExerciseSearchResul
   });
 
   const resp = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.4-mini',
     max_tokens: 512,
     response_format: { type: 'json_object' },
     messages: [{
