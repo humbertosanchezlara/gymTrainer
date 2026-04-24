@@ -4,20 +4,12 @@ import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useBreakpoint';
 import { deriveEngineProfile, generateNoEquipmentProgram, NO_EQUIPMENT_DEFAULT_EXERCISES } from '../../engine/noEquipmentAdapter';
+import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
 import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
 import type { Tab } from '../MainShell';
 
 // ─── Types ────────────────────────────────────────────────
-interface SessionAdjustment {
-  type: 'deload' | 'reduce_time' | 'swap_exercise' | 'swap_specific' | 'general';
-  weightScale?: number;
-  rpeDelta?: number;
-  maxExercises?: number;
-  targetExerciseName?: string;
-  reason: string;
-  details: string;
-}
 
 export interface SessionLogEntry {
   exercise_id: string;
@@ -46,93 +38,6 @@ interface ProgramDayExercise {
   notes?: string;
 }
 
-// ─── Smart Adjustment Parser ─────────────────────────────
-function parseAdjustmentRequest(text: string): SessionAdjustment[] {
-  const lower = text.toLowerCase();
-  const adjustments: SessionAdjustment[] = [];
-
-  const fatigueKeywords = ['cansado', 'cansada', 'fatigado', 'fatigada', 'pesado', 'pesada',
-    'agotado', 'agotada', 'dormí', 'dormi', 'sueño', 'sueno', 'desvelé', 'desvele',
-    'no descansé', 'no descanse', 'mal dormido', 'mal dormida', 'horas de sueño',
-    'exhausto', 'exhausta', 'drenado', 'drenada'];
-  const sleepMatch = lower.match(/dorm[ií]\s*(\d+)\s*hora/);
-  const hasFatigue = fatigueKeywords.some(k => lower.includes(k));
-  const lowSleep = sleepMatch && parseInt(sleepMatch[1]) < 6;
-
-  if (hasFatigue || lowSleep) {
-    const severity = lowSleep && parseInt(sleepMatch![1]) <= 4 ? 0.75 : 0.80;
-    adjustments.push({
-      type: 'deload', weightScale: severity, rpeDelta: -1.5,
-      reason: 'Fatiga detectada',
-      details: lowSleep
-        ? `Descanso insuficiente (${sleepMatch![1]}h). Peso reducido ${Math.round((1 - severity) * 100)}%, RPE -1.5`
-        : `Fatiga general. Peso reducido ${Math.round((1 - severity) * 100)}%, RPE -1.5`,
-    });
-  }
-
-  const painKeywords = ['dolor', 'duele', 'molestia', 'lesión', 'lesion', 'lastimé', 'lastime',
-    'inflamado', 'inflamada', 'pinzamiento', 'contractura'];
-  if (painKeywords.some(k => lower.includes(k))) {
-    adjustments.push({
-      type: 'deload', weightScale: 0.70, rpeDelta: -2,
-      reason: 'Dolor / molestia reportada',
-      details: 'Peso reducido 30%, RPE -2. Presta atención a la técnica y detente si el dolor persiste.',
-    });
-  }
-
-  const timeMatch = lower.match(/(\d+)\s*min/);
-  const timeKeywords = ['poco tiempo', 'rápido', 'rapido', 'corta', 'prisa', 'apurado', 'apurada',
-    'menos tiempo', 'acortar', 'reducir tiempo'];
-  if (timeKeywords.some(k => lower.includes(k)) || timeMatch) {
-    const minutes = timeMatch ? parseInt(timeMatch[1]) : 30;
-    const maxEx = Math.max(3, Math.floor((minutes - 5) / 7));
-    adjustments.push({
-      type: 'reduce_time', maxExercises: maxEx,
-      reason: 'Sesión reducida',
-      details: timeMatch
-        ? `Ajustada a ${minutes} min (~${maxEx} ejercicios). Se priorizan compuestos.`
-        : `Sesión acortada (~${maxEx} ejercicios). Se priorizan compuestos.`,
-    });
-  }
-
-  if (['no tengo', 'sin barra', 'sin mancuerna', 'no hay', 'falta equipo', 'equipo', 'máquina', 'maquina', 'rota', 'ocupada', 'ocupado'].some(k => lower.includes(k))) {
-    adjustments.push({
-      type: 'swap_exercise',
-      reason: 'Problema de equipamiento',
-      details: 'Los ejercicios que requieran el equipo faltante se sustituirán por alternativas disponibles.',
-    });
-  }
-
-  const swapPatterns = [
-    /(?:cambiar?|quitar?|reemplazar?|sustituir?|cambia|quita|reemplaza|sustituye)\s+(?:el\s+|la\s+|los\s+|las\s+)?(.{4,40}?)(?:\s+por\s+|\s+con\s+|\s*$)/i,
-    /(?:en lugar de|en vez de)\s+(?:el\s+|la\s+)?(.{4,40}?)(?:\s*$|\s*,)/i,
-    /(?:no quiero|no me gusta)\s+(?:el\s+|la\s+)?(.{4,40}?)(?:\s*$|\s*,)/i,
-  ];
-  for (const pattern of swapPatterns) {
-    const m = text.match(pattern);
-    if (m && m[1]) {
-      const target = m[1].trim().replace(/[.,!?]+$/, '');
-      if (target.length >= 3) {
-        adjustments.push({
-          type: 'swap_specific', targetExerciseName: target,
-          reason: 'Cambio de ejercicio',
-          details: `Se buscará un sustituto para "${target}" dentro de la misma categoría muscular.`,
-        });
-        break;
-      }
-    }
-  }
-
-  if (adjustments.length === 0) {
-    adjustments.push({
-      type: 'general', weightScale: 0.90, rpeDelta: -1,
-      reason: 'Ajuste general',
-      details: 'Se aplicó una reducción moderada: peso -10%, RPE -1.',
-    });
-  }
-
-  return adjustments;
-}
 
 // ─── Component ────────────────────────────────────────────
 interface DashboardViewProps {
@@ -220,7 +125,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     if (!adjustInput.trim() || !user) return;
     setAdjusting(true);
     try {
-      const adjustments = parseAdjustmentRequest(adjustInput);
+      const exerciseNames = todayExercises.map(e => e.exercise_name || e.name || '').filter(Boolean);
+      const adjustments = await parseAdjustmentWithAI(adjustInput, exerciseNames);
       const { data: prog } = await supabase
         .from('programs').select('id, total_days').eq('user_id', user.id)
         .order('created_at', { ascending: false }).limit(1).maybeSingle();
@@ -337,13 +243,13 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         reps_per_set: ex.reps_max || ex.reps_min || 10,
         weight: 0,
         rpe: ex.rpe || 8,
-        notes: ex.notes || 'Modo viaje',
+        notes: ex.notes || 'Fuera del gym',
       }));
 
       onStartTravel(travelDraft);
       setShowTravelSetup(false);
     } catch {
-      toast.error('Error al generar la rutina de viaje.');
+      toast.error('Error al generar la sesión fuera del gym.');
     } finally {
       setAdjusting(false);
     }
@@ -351,8 +257,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
   const weekNum = completedWeeks + 1;
   const blockName = getBlockInfo(weekNum);
-  const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' });
-  const timeStr = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
   if (loading) {
     return (
@@ -366,19 +270,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   return (
     <div className="forge-fade" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
-      {/* Header row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', paddingBottom: 16, flexWrap: 'wrap' as const, gap: 8 }}>
-        <div>
-          <div className="uc" style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>
-            Buenos días{user?.email ? `, ${user.email.split('@')[0]}` : ''}
-          </div>
-          <div className="mono caption" style={{ marginTop: 6 }}>{today} · {timeStr}</div>
-        </div>
-        <div className="mono caption" style={{ textAlign: 'right' }}>
-          Bloque {blockName} · Semana {weekNum}/12{nextDayNum ? ` · Día ${nextDayNum}` : ''}
-        </div>
-      </div>
 
       {/* Program complete banner */}
       {programComplete && (
@@ -438,7 +329,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           </div>
           <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
             {todayExercises.map((e, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '40px 1fr 100px 100px 80px', gap: isMobile ? '8px 12px' : 16, padding: isMobile ? '14px 16px' : '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '40px 1fr 100px 100px', gap: isMobile ? '4px' : 16, padding: isMobile ? '14px 16px' : '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
                 {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>}
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{e.exercise_name || e.name || '—'}</div>
@@ -446,7 +337,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
                 </div>
                 {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>}
                 {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg` : 'BW'}</div>}
-                <div className="mono caption" style={{ color: 'var(--accent)', fontWeight: 600 }}>{e.rpe ? `RPE ${e.rpe}` : ''}</div>
               </div>
             ))}
           </div>
@@ -529,8 +419,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           <div>
             <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Días por semana fuera</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {[2, 3, 4, 5].map(n => (
-                <button key={n} onClick={() => setTravelDays(n)} className={`btn ${travelDays === n ? 'btn-ink' : 'btn-ghost'}`}>{n} días</button>
+              {[1, 2, 3, 4, 5].map(n => (
+                <button key={n} onClick={() => setTravelDays(n)} className={`btn ${travelDays === n ? 'btn-ink' : 'btn-ghost'}`}>{n} {n === 1 ? 'día' : 'días'}</button>
               ))}
             </div>
           </div>
