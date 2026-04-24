@@ -116,3 +116,28 @@ CREATE POLICY "Users manage own logs" ON session_logs FOR ALL
 
 -- Block metrics policies
 CREATE POLICY "Users manage own block metrics" ON block_metrics FOR ALL USING (auth.uid() = user_id);
+
+-- =============================================
+-- Community Exercises (shared across all users)
+-- Run this migration separately after the base schema
+-- =============================================
+CREATE TABLE community_exercises (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  category movement_category NOT NULL,
+  instructions TEXT,
+  created_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE community_exercises ENABLE ROW LEVEL SECURITY;
+
+-- Anyone authenticated can read
+CREATE POLICY "Authenticated users can read community exercises"
+  ON community_exercises FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
+-- Authenticated users can insert new exercises
+CREATE POLICY "Authenticated users can insert community exercises"
+  ON community_exercises FOR INSERT
+  WITH CHECK (auth.uid() IS NOT NULL);

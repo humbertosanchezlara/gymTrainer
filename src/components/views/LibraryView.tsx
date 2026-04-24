@@ -9,7 +9,8 @@ import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/no
 import Modal from '../Modal';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { getCatalogEntry } from '../../data/exerciseCatalog';
-import { Loader2, RefreshCw, Trash2, ChevronDown, Info, Plus } from 'lucide-react';
+import { Loader2, RefreshCw, Trash2, ChevronDown, Info, Plus, Sparkles } from 'lucide-react';
+import AddExerciseModal from '../AddExerciseModal';
 
 function sessionDraftKey(userId: string) {
   return `session_draft_${userId}`;
@@ -32,6 +33,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
   const [detailExercise, setDetailExercise] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingProgram, setDeletingProgram] = useState(false);
+  const [showAddExercise, setShowAddExercise] = useState(false);
 
   const fetchExercises = async () => {
     if (!user) return;
@@ -179,6 +181,22 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
         )}
       </div>
 
+      {/* Add exercise banner */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 16, padding: '24px 28px' }}>
+        <div>
+          <div className="d-s" style={{ fontWeight: 700, marginBottom: 4 }}>¿No encuentras un ejercicio?</div>
+          <div className="caption" style={{ color: 'var(--muted)' }}>Añade cualquier máquina o movimiento nuevo a la biblioteca.</div>
+        </div>
+        <button
+          onClick={() => setShowAddExercise(true)}
+          className="btn btn-ink"
+          style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          <Sparkles size={15} />
+          Añadir ejercicio
+        </button>
+      </div>
+
       {/* Status legend */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         {[
@@ -284,6 +302,12 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
       </Modal>
 
       {detailExercise && <ExerciseDetailModal exerciseName={detailExercise} onClose={() => setDetailExercise(null)} />}
+
+      <AddExerciseModal
+        isOpen={showAddExercise}
+        onClose={() => setShowAddExercise(false)}
+        onExerciseAdded={() => fetchExercises()}
+      />
     </div>
   );
 }
