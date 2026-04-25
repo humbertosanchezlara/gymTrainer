@@ -8,8 +8,10 @@ import {
   getCachedTravelBlock,
   getNextTravelSession,
   saveTravelBlock,
+  clearTravelBlock,
   type TravelBlockConfig,
   type CachedTravelBlock,
+  type TravelDayContext,
 } from '../../lib/openaiTravelGenerator';
 import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
 import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
@@ -50,7 +52,7 @@ interface ProgramDayExercise {
 interface DashboardViewProps {
   onNavigate: (t: Tab) => void;
   onStartSession: () => void;
-  onStartTravel: (d: SessionLogEntry[]) => void;
+  onStartTravel: (d: SessionLogEntry[], context: TravelDayContext) => void;
 }
 
 function getBlockInfo(week: number): string {
@@ -208,9 +210,12 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     }
   };
 
-  const handleTravelModeClick = async () => {
+  const [travelGenerating, setTravelGenerating] = useState(false);
+
+  const handleTravelModeClick = async (skipCache = false) => {
     if (!user) return;
     setAdjusting(true);
+    setTravelGenerating(false);
     try {
       const dislikedExercises = travelDisliked
         .split(',')
@@ -225,9 +230,11 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         dislikedExercises,
       };
 
-      let block: CachedTravelBlock | null = getCachedTravelBlock(user.id, config);
+      let block: CachedTravelBlock | null = skipCache ? null : getCachedTravelBlock(user.id, config);
 
       if (!block) {
+        if (skipCache) clearTravelBlock(user.id);
+        setTravelGenerating(true);
         const generated = await generateTravelBlock(user.id, config);
         block = {
           days: generated,
@@ -238,17 +245,25 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         saveTravelBlock(user.id, block);
       }
 
-      const { entries } = await getNextTravelSession(user.id, block);
+      const { day, entries } = await getNextTravelSession(user.id, block);
 
       block = { ...block, current_index: (block.current_index + 1) % block.days.length };
       saveTravelBlock(user.id, block);
 
-      onStartTravel(entries);
+      const context: TravelDayContext = {
+        label: day.label,
+        focus: day.focus,
+        session_difficulty: day.session_difficulty,
+        estimated_minutes: day.estimated_minutes,
+      };
+
+      onStartTravel(entries, context);
       setShowTravelSetup(false);
     } catch {
       toast.error('Error al generar la sesión fuera del gym.');
     } finally {
       setAdjusting(false);
+      setTravelGenerating(false);
     }
   };
 
@@ -408,9 +423,17 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         actions={
           <>
             <button onClick={() => setShowTravelSetup(false)} className="btn btn-ghost">Cancelar</button>
-            <button onClick={handleTravelModeClick} disabled={adjusting} className="btn btn-ink" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => handleTravelModeClick(true)}
+              disabled={adjusting}
+              className="btn btn-ghost"
+              title="Descarta el bloque guardado y genera uno nuevo con IA"
+            >
+              Regenerar
+            </button>
+            <button onClick={() => handleTravelModeClick(false)} disabled={adjusting} className="btn btn-ink" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {adjusting ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : null}
-              Generar sesión
+              {adjusting && travelGenerating ? 'Generando con IA…' : 'Siguiente sesión'}
             </button>
           </>
         }

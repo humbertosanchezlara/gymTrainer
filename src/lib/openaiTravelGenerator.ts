@@ -42,6 +42,13 @@ export interface CachedTravelBlock {
   generated_at: string;
 }
 
+export interface TravelDayContext {
+  label: TravelDayLabel;
+  focus: string;
+  session_difficulty: number;
+  estimated_minutes: number;
+}
+
 // ─── Resolved travel session ready for SessionView ───────────
 
 export interface ResolvedTravelSession {
@@ -179,13 +186,14 @@ export function getCachedTravelBlock(userId: string, config: TravelBlockConfig):
     if (!stored) return null;
     const block = JSON.parse(stored) as CachedTravelBlock;
 
-    // Invalidate if equipment, volume, or disliked exercises changed
+    // Invalidate if equipment, volume, days or disliked exercises changed
     const sortedDislikedStored = [...(block.config.dislikedExercises ?? [])].sort().join(',');
     const sortedDislikedNew = [...(config.dislikedExercises ?? [])].sort().join(',');
     if (
       block.config.hasBands !== config.hasBands ||
       block.config.hasPullupBar !== config.hasPullupBar ||
       block.config.volumeLevel !== config.volumeLevel ||
+      block.config.travelDays !== config.travelDays ||
       sortedDislikedStored !== sortedDislikedNew
     ) return null;
 

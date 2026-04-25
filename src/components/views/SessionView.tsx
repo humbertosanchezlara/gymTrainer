@@ -10,6 +10,7 @@ import {
   Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft,
 } from 'lucide-react';
 import { generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
+import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { Tab } from '../MainShell';
 
 // ─── Types ────────────────────────────────────────────────
@@ -91,6 +92,7 @@ function computeProgression(log: SessionLogEntry): ProgressionResult {
 interface SessionViewProps {
   onNavigate: (t: Tab) => void;
   travelDraft: SessionLogEntry[] | null;
+  travelContext: TravelDayContext | null;
   onClearTravel: () => void;
 }
 
@@ -101,7 +103,7 @@ const BLOCKS = [
   { name: 'Descarga',   num: 4, desc: 'Volumen e intensidad bajos — recuperación' },
 ] as const;
 
-export default function SessionView({ onNavigate, travelDraft, onClearTravel }: SessionViewProps) {
+export default function SessionView({ onNavigate, travelDraft, travelContext, onClearTravel }: SessionViewProps) {
   const { user } = useAuth();
   const toast = useToast();
   const isMobile = useIsMobile();
@@ -199,7 +201,10 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
 
       // Intercept for travel draft
       if (travelDraft) {
-        setSessionName('Sesión Fuera del Gym');
+        const name = travelContext
+          ? `Día ${travelContext.label} · ${travelContext.focus}`
+          : 'Sesión Fuera del Gym';
+        setSessionName(name);
         setDayNum(0);
         setWeekNum(0);
         setBlockNum(0);
@@ -466,7 +471,9 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
             }}
           />
           <div className="mono caption" style={{ marginTop: 8, color: 'var(--muted)' }}>
-            {hasProgram && weekNum > 0
+            {travelContext
+              ? `Fuera del gym · ~${travelContext.estimated_minutes} min · Dificultad ${travelContext.session_difficulty}/10`
+              : hasProgram && weekNum > 0
               ? `Día ${dayNum} · Semana ${weekNum} · ${blockName}`
               : hasProgram
               ? blockName
@@ -700,16 +707,25 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
               {/* PESO */}
               <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
                 <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>{isMobile ? 'kg' : 'PESO (kg)'}</span>
-                <input
-                  type="number"
-                  className="session-num-input"
-                  value={log.weight}
-                  onChange={e => updateLog(i, 'weight', +e.target.value)}
-                  inputMode="decimal"
-                  step={2.5}
-                  min={0}
-                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
-                />
+                {travelDraft && log.weight === 0
+                  ? <span style={{ fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.2 }}>BW</span>
+                  : <input
+                      type="number"
+                      className="session-num-input"
+                      value={log.weight}
+                      onChange={e => updateLog(i, 'weight', +e.target.value)}
+                      inputMode="decimal"
+                      step={2.5}
+                      min={0}
+                      style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
+                    />
+                }
+                {travelDraft && log.weight === 0 && (
+                  <button
+                    onClick={() => updateLog(i, 'weight', 2.5)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--sans)', fontSize: 9, color: 'var(--muted)', padding: 0, textDecoration: 'underline' }}
+                  >+ peso</button>
+                )}
               </div>
               {/* RPE */}
               <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
