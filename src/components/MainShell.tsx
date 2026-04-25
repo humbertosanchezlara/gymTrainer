@@ -7,6 +7,7 @@ import SessionView from './views/SessionView';
 import LibraryView from './views/LibraryView';
 import ProgressView from './views/ProgressView';
 import type { SessionLogEntry } from './views/DashboardView';
+import type { TravelDayContext } from '../lib/openaiTravelGenerator';
 import { Plus, X, Home, Calendar, TrendingUp, Dumbbell } from 'lucide-react';
 
 export type Tab = 'dashboard' | 'program' | 'progress' | 'library';
@@ -60,13 +61,14 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [scene, setScene] = useState<Scene>('app');
   const [travelDraft, setTravelDraft] = useState<SessionLogEntry[] | null>(null);
+  const [travelContext, setTravelContext] = useState<TravelDayContext | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const initial = user?.email?.[0]?.toUpperCase() ?? 'U';
 
-  const goToSession = (draft?: SessionLogEntry[] | null) => {
-    if (draft) setTravelDraft(draft);
-    else setTravelDraft(null);
+  const goToSession = (draft?: SessionLogEntry[] | null, context?: TravelDayContext) => {
+    if (draft) { setTravelDraft(draft); setTravelContext(context ?? null); }
+    else { setTravelDraft(null); setTravelContext(null); }
     setScene('session');
   };
 
@@ -75,7 +77,8 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
       <SessionView
         onNavigate={(t) => { setScene('app'); setTab(t); }}
         travelDraft={travelDraft}
-        onClearTravel={() => setTravelDraft(null)}
+        travelContext={travelContext}
+        onClearTravel={() => { setTravelDraft(null); setTravelContext(null); }}
       />
     );
   }
@@ -135,7 +138,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
         padding: isMobile ? '20px 16px 90px' : '32px',
         minHeight: `calc(100vh - ${isMobile ? 56 : 64}px)`,
       }}>
-        {tab === 'dashboard' && <DashboardView onNavigate={setTab} onStartSession={() => goToSession()} onStartTravel={(draft) => goToSession(draft)} />}
+        {tab === 'dashboard' && <DashboardView onNavigate={setTab} onStartSession={() => goToSession()} onStartTravel={(draft, ctx) => goToSession(draft, ctx)} />}
         {tab === 'program'   && <ProgramView />}
         {tab === 'progress'  && <ProgressView />}
         {tab === 'library'   && <LibraryView onProgramDeleted={onProgramDeleted} />}
