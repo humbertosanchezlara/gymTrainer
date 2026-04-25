@@ -85,6 +85,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
   const [adjustInput, setAdjustInput] = useState('');
   const [adjusting, setAdjusting] = useState(false);
+  const [adjustedSummary, setAdjustedSummary] = useState<string | null>(null);
+  const [originalExercises, setOriginalExercises] = useState<ProgramDayExercise[] | null>(null);
 
   const [showTravelSetup, setShowTravelSetup] = useState(false);
   const [travelDays, setTravelDays] = useState(3);
@@ -154,9 +156,23 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     });
   }, [user]);
 
+  const handleRevert = async () => {
+    if (!originalExercises || !nextDayId) return;
+    try {
+      await supabase.from('program_days').update({ exercises: originalExercises }).eq('id', nextDayId);
+      setTodayExercises(originalExercises);
+      setOriginalExercises(null);
+      setAdjustedSummary(null);
+      toast.success('Sesión revertida al plan original');
+    } catch {
+      toast.error('No se pudo revertir. Intenta de nuevo.');
+    }
+  };
+
   const handleAdjust = async () => {
     if (!adjustInput.trim() || !user) return;
     setAdjusting(true);
+    const snapshot = [...todayExercises];
     try {
       const exerciseNames = todayExercises.map(e => e.exercise_name || e.name || '').filter(Boolean);
       const adjustments = await parseAdjustmentWithAI(adjustInput, exerciseNames);
@@ -205,11 +221,12 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
           await supabase.from('program_days').update({ exercises: adjusted }).eq('id', dayData.id);
           setTodayExercises(adjusted as ProgramDayExercise[]);
+          setOriginalExercises(snapshot);
+          setAdjustedSummary(adjustments[0]?.details ?? 'Sesión ajustada según tu solicitud.');
         }
       }
 
       setAdjustInput('');
-      toast.success('Ajustes aplicados a tu próxima sesión');
     } catch {
       toast.error('No se pudieron aplicar los ajustes. Intenta de nuevo.');
     } finally {
@@ -321,6 +338,9 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         exerciseCount={todayExercises.length}
         duration={todayExercises.length > 0 ? estimateDuration(todayExercises.length) : undefined}
         onStart={onStartSession}
+        isAdjusting={adjusting}
+        adjustedSummary={adjustedSummary}
+        onRevert={originalExercises ? handleRevert : undefined}
       />
 
       {/* AI adjust */}
