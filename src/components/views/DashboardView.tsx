@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 
-const KG_TO_LBS = 2.20462;
-function kgToLbs(kg: number): number { return Math.round(kg * KG_TO_LBS); }
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
@@ -374,34 +372,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         lastSessionDate={lastSession ? new Date(lastSession.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : undefined}
         lastSessionBlock={lastSession?.block_num ? `Bloque ${lastSession.block_num}` : undefined}
       />
-
-      {/* Exercise preview (collapsed on mobile, shown as subtle list) */}
-      {todayExercises.length > 0 && (
-        <div style={{ border: '1px solid var(--rule)', borderRadius: 20, overflow: 'hidden' }}>
-          <div style={{
-            padding: '14px 20px', borderBottom: '1px solid var(--rule)',
-            fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
-            color: 'var(--muted)', fontFamily: 'var(--sans)',
-            display: 'flex', justifyContent: 'space-between',
-          }}>
-            <span>Ejercicios de hoy</span>
-            <span style={{ fontFamily: 'var(--mono)' }}>{todayExercises.length}</span>
-          </div>
-          {todayExercises.map((e, i) => (
-            <div key={i} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '12px 20px',
-              borderTop: i === 0 ? 'none' : '1px solid var(--rule)',
-            }}>
-              <span style={{ fontWeight: 500, fontSize: 14 }}>{e.exercise_name || e.name || '—'}</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                {e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}
-                {e.weight ? ` · ${e.weight} kg / ${kgToLbs(e.weight)} lb` : ' · BW'}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Ver programa completo */}
       <button
