@@ -8,42 +8,62 @@ interface HeroSessionProps {
 }
 
 export function HeroSession({ sessionName, exerciseCount, duration, onStart }: HeroSessionProps) {
+  const meta = [
+    exerciseCount > 0 ? `${exerciseCount} ejercicios` : null,
+    duration ?? null,
+  ].filter(Boolean).join(' · ');
+
   return (
     <div style={{
       background: 'var(--ink)', color: 'var(--paper)',
-      borderRadius: 20, padding: 24,
-      display: 'flex', flexDirection: 'column', gap: 20,
+      borderRadius: 24, padding: '22px 22px 20px',
+      display: 'flex', flexDirection: 'column', gap: 18,
     }}>
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Label row — "HOY ENTRENAS" + meta on the same line */}
         <div style={{
-          opacity: 0.45, fontSize: 11, textTransform: 'uppercase',
-          letterSpacing: '0.08em', marginBottom: 10, fontFamily: 'var(--sans)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          Hoy entrenas
+          <span style={{
+            fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '0.08em', opacity: 0.45,
+            fontFamily: 'var(--sans)',
+          }}>
+            Hoy entrenas
+          </span>
+          {meta && (
+            <span style={{
+              fontSize: 11, opacity: 0.45,
+              fontFamily: 'var(--mono)', letterSpacing: '0.02em',
+              textTransform: 'uppercase',
+            }}>
+              {meta}
+            </span>
+          )}
         </div>
+
+        {/* Session name */}
         <div style={{
-          fontWeight: 700, fontSize: 22, letterSpacing: '-0.025em',
-          lineHeight: 1.2, marginBottom: 12, fontFamily: 'var(--sans)',
+          fontWeight: 700, fontSize: 24, letterSpacing: '-0.025em',
+          lineHeight: 1.15, fontFamily: 'var(--sans)',
         }}>
           {sessionName}
         </div>
-        <div style={{ display: 'flex', gap: 16, opacity: 0.5, fontSize: 12, fontFamily: 'var(--mono)' }}>
-          <span>{exerciseCount} ejercicios</span>
-          {duration && <span>{duration}</span>}
-        </div>
       </div>
 
+      {/* CTA */}
       <button
         onClick={onStart}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          width: '100%', padding: '16px 20px',
+          width: '100%', padding: '15px 20px',
           background: 'var(--accent)', color: 'var(--accent-ink)',
           border: 'none', borderRadius: 14, cursor: 'pointer',
           fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 16,
           letterSpacing: '-0.01em', transition: 'opacity .15s',
+          boxSizing: 'border-box',
         }}
-        onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+        onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
         onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
       >
         <span>Empezar entrenamiento</span>
