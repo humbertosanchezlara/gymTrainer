@@ -81,6 +81,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [travelHasBands, setTravelHasBands] = useState(true);
   const [travelHasPullupBar, setTravelHasPullupBar] = useState(false);
   const [travelVolume, setTravelVolume] = useState<'basic' | 'intermediate' | 'advanced'>('intermediate');
+  const [travelDisliked, setTravelDisliked] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -211,11 +212,17 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     if (!user) return;
     setAdjusting(true);
     try {
+      const dislikedExercises = travelDisliked
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
       const config: TravelBlockConfig = {
         hasBands: travelHasBands,
         hasPullupBar: travelHasPullupBar,
         travelDays,
         volumeLevel: travelVolume,
+        dislikedExercises,
       };
 
       let block: CachedTravelBlock | null = getCachedTravelBlock(user.id, config);
@@ -439,6 +446,20 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
                 </button>
               ))}
             </div>
+          </div>
+          <div>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 8 }}>Ejercicios que prefieres evitar</div>
+            <div className="body-s" style={{ color: 'var(--muted)', marginBottom: 10, lineHeight: 1.5 }}>
+              Separa por comas. Ej: burpees, sentadillas con salto, jumping jacks
+            </div>
+            <input
+              type="text"
+              value={travelDisliked}
+              onChange={e => setTravelDisliked(e.target.value)}
+              placeholder="burpees, jumping jacks..."
+              className="forge-field"
+              style={{ width: '100%', boxSizing: 'border-box' }}
+            />
           </div>
         </div>
       </Modal>

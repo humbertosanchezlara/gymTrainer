@@ -32,6 +32,7 @@ export interface TravelBlockConfig {
   hasPullupBar: boolean;
   travelDays: number;
   volumeLevel: 'basic' | 'intermediate' | 'advanced';
+  dislikedExercises?: string[];
 }
 
 export interface CachedTravelBlock {
@@ -178,11 +179,14 @@ export function getCachedTravelBlock(userId: string, config: TravelBlockConfig):
     if (!stored) return null;
     const block = JSON.parse(stored) as CachedTravelBlock;
 
-    // Invalidate if equipment or volume changed
+    // Invalidate if equipment, volume, or disliked exercises changed
+    const sortedDislikedStored = [...(block.config.dislikedExercises ?? [])].sort().join(',');
+    const sortedDislikedNew = [...(config.dislikedExercises ?? [])].sort().join(',');
     if (
       block.config.hasBands !== config.hasBands ||
       block.config.hasPullupBar !== config.hasPullupBar ||
-      block.config.volumeLevel !== config.volumeLevel
+      block.config.volumeLevel !== config.volumeLevel ||
+      sortedDislikedStored !== sortedDislikedNew
     ) return null;
 
     // Invalidate if older than 7 days
@@ -418,7 +422,10 @@ export async function generateTravelBlock(
     recentCount ?? 0
   );
 
-  const excluded = (excludedExercises ?? []).map(e => e.name);
+  const excluded = [
+    ...(excludedExercises ?? []).map(e => e.name),
+    ...(config.dislikedExercises ?? []),
+  ];
   const numDays = Math.min(Math.max(config.travelDays, 2), 4);
 
   return callLLM(abstractProfile, config, excluded, numDays);
