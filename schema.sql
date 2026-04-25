@@ -118,6 +118,12 @@ CREATE POLICY "Users manage own logs" ON session_logs FOR ALL
 CREATE POLICY "Users manage own block metrics" ON block_metrics FOR ALL USING (auth.uid() = user_id);
 
 -- =============================================
+-- Migration: Weight unit preference
+-- Run in Supabase SQL Editor after initial schema
+-- =============================================
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS weight_unit TEXT DEFAULT 'kg' CHECK (weight_unit IN ('kg', 'lbs'));
+
+-- =============================================
 -- Community Exercises (shared across all users)
 -- Run this migration separately after the base schema
 -- =============================================

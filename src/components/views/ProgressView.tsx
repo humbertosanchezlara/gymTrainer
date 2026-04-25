@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+
+const KG_TO_LBS = 2.20462;
+function kgToLbs(kg: number): number { return Math.round(kg * KG_TO_LBS); }
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import type { Session, SessionLog, WorkingWeight, Exercise } from '../../types';
@@ -83,8 +86,9 @@ export default function ProgressView() {
                 <div className="d-s" style={{ fontWeight: 600 }}>
                   {(w.exercise as unknown as { name?: string })?.name ?? '—'}
                 </div>
-                <div className="mono" style={{ fontSize: 22, fontWeight: 600 }}>
-                  {w.weight}<span style={{ fontSize: 13, color: 'var(--muted)', marginLeft: 4 }}>kg</span>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 600, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0 }}>
+                  <span>{w.weight}<span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 3, fontWeight: 400 }}>kg</span></span>
+                  <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 400 }}>{kgToLbs(w.weight)}<span style={{ fontSize: 10, marginLeft: 2 }}>lb</span></span>
                 </div>
               </div>
             ))}
@@ -133,10 +137,10 @@ export default function ProgressView() {
                             <div style={{ fontSize: 14, fontWeight: 500 }}>
                               {(log.exercise as unknown as { name?: string })?.name ?? '—'}
                             </div>
-                            {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{log.sets} × {log.reps_per_set} · {log.weight} kg</div>}
+                            {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{log.sets} × {log.reps_per_set} · {log.weight} kg / {kgToLbs(log.weight)} lb</div>}
                           </div>
                           {!isMobile && <div className="mono" style={{ fontSize: 13 }}>{log.sets} × {log.reps_per_set}</div>}
-                          {!isMobile && <div className="mono" style={{ fontSize: 13 }}>{log.weight} kg</div>}
+                          {!isMobile && <div className="mono" style={{ fontSize: 13 }}>{log.weight} kg<span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 4 }}>/ {kgToLbs(log.weight)} lb</span></div>}
                           <div className="mono caption" style={{ color: 'var(--muted)' }}>RPE {log.rpe ?? '—'}</div>
                         </div>
                       ))}

@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+
+const KG_TO_LBS = 2.20462;
+function kgToLbs(kg: number): number { return Math.round(kg * KG_TO_LBS); }
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
@@ -367,10 +370,10 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
                 {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>}
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{e.exercise_name || e.name || '—'}</div>
-                  {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''} · {e.weight ? `${e.weight} kg` : 'BW'}</div>}
+                  {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''} · {e.weight ? `${e.weight} kg / ${kgToLbs(e.weight)} lb` : 'BW'}</div>}
                 </div>
                 {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>}
-                {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg` : 'BW'}</div>}
+                {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg / ${kgToLbs(e.weight)} lb` : 'BW'}</div>}
               </div>
             ))}
           </div>
