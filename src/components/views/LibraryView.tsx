@@ -4,7 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import type { Exercise } from '../../types';
 import { DEFAULT_EXERCISES, type MovementCategory, type ExerciseStatus, CATEGORY_LABELS } from '../../types';
-import { generateProgram } from '../../engine/programGenerator';
+import { generateWeekWithAI } from '../../lib/openaiProgramGenerator';
 import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/noEquipmentAdapter';
 import Modal from '../Modal';
 import ExerciseDetailModal from '../ExerciseDetailModal';
@@ -102,22 +102,25 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
 
       const bw = Number(profile.bodyweight) || 75;
       const ht = Number(profile.height) || 170;
-      const bmi = bw / ((ht / 100) ** 2);
 
       const isNoEq = profile.equipment_access === 'no_equipment';
-      const program = isNoEq
-        ? generateNoEquipmentProgram(deriveEngineProfile({ experience: profile.training_experience, scheduleDays: profile.schedule_days, sessionMinutes: profile.session_minutes ?? 60, goal: profile.goal }), yesExercises, 1)
-        : generateProgram(yesExercises, profile.schedule_days, bw, profile.training_experience, keyLifts.squat > 0 ? keyLifts : undefined, profile.goal, bmi, profile.session_minutes ?? 60, profile.gender ?? 'male', cycleNumber);
 
-      if (hasHistory && !isNoEq) {
-        for (const day of program.days) {
-          for (const ex of day.exercises) {
-            const actualWeight = workingWeightMap.get(ex.exercise_id);
-            if (actualWeight !== undefined) { ex.weight = actualWeight; }
-            ex.is_calibration = false;
-            ex.notes = '';
-          }
-        }
+      let programName: string, splitType: string, totalDays: number;
+      let programDays: { day_number: number; day_name: string; exercises: unknown[] }[];
+
+      if (isNoEq) {
+        const p = generateNoEquipmentProgram(deriveEngineProfile({ experience: profile.training_experience, scheduleDays: profile.schedule_days, sessionMinutes: profile.session_minutes ?? 60, goal: profile.goal }), yesExercises, 1);
+        programName = p.name; splitType = p.split_type; totalDays = p.total_days; programDays = p.days;
+      } else {
+        const result = await generateWeekWithAI({
+          weekNum: 1,
+          exercises: yesExercises,
+          profile: { bodyweight: bw, height: ht, training_experience: profile.training_experience, goal: profile.goal, schedule_days: profile.schedule_days, session_minutes: profile.session_minutes ?? 60, gender: profile.gender ?? 'male' },
+          keyLifts: keyLifts.squat > 0 ? keyLifts : { squat: 0, bench: 0, deadlift: 0, ohp: 0 },
+          cycleNumber,
+          workingWeights: hasHistory ? workingWeightMap : undefined,
+        });
+        programName = result.programName; splitType = result.splitType; totalDays = result.totalDays; programDays = result.days;
       }
 
       if (oldProgram) {
@@ -125,10 +128,10 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
         await supabase.from('programs').delete().eq('id', oldProgram.id);
       }
 
-      const { data: savedProgram, error: pErr } = await supabase.from('programs').insert({ user_id: user.id, name: program.name, split_type: program.split_type, total_days: program.total_days }).select().single();
+      const { data: savedProgram, error: pErr } = await supabase.from('programs').insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays }).select().single();
       if (pErr || !savedProgram) throw pErr;
 
-      await supabase.from('program_days').insert(program.days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises })));
+      await supabase.from('program_days').insert(programDays.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises, week_num: 1 })));
       localStorage.removeItem(sessionDraftKey(user.id));
       toast.success('Programa actualizado correctamente');
     } catch {
