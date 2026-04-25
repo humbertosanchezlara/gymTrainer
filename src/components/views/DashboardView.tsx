@@ -61,6 +61,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [sessions, setSessions] = useState<Array<{ id: string; name: string; date: string; block_num: number | null }>>([]);
   const [nextDayName, setNextDayName] = useState<string | null>(null);
   const [nextDayNum, setNextDayNum] = useState<number | null>(null);
+  const [nextDayId, setNextDayId] = useState<string | null>(null);
   const [programComplete, setProgramComplete] = useState(false);
   const [completedWeeks, setCompletedWeeks] = useState(0);
   const [todayExercises, setTodayExercises] = useState<ProgramDayExercise[]>([]);
@@ -101,17 +102,32 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           return;
         }
 
+        const weekNum = Math.floor(sessCount / pRes.data.total_days) + 1;
         const dayNum = (sessCount % pRes.data.total_days) + 1;
         setNextDayNum(dayNum);
-        const { data: dayData } = await supabase
+
+        // Try week-specific day first, fall back to week 1 (base program)
+        let { data: dayData } = await supabase
           .from('program_days')
-          .select('day_name, exercises')
+          .select('id, day_name, exercises')
           .eq('program_id', pRes.data.id)
+          .eq('week_num', weekNum)
           .eq('day_number', dayNum)
           .maybeSingle();
 
+        if (!dayData) {
+          ({ data: dayData } = await supabase
+            .from('program_days')
+            .select('id, day_name, exercises')
+            .eq('program_id', pRes.data.id)
+            .eq('week_num', 1)
+            .eq('day_number', dayNum)
+            .maybeSingle());
+        }
+
         if (dayData) {
           setNextDayName(dayData.day_name);
+          setNextDayId(dayData.id);
           const exArr = dayData.exercises;
           if (Array.isArray(exArr)) setTodayExercises(exArr as ProgramDayExercise[]);
         }
@@ -127,14 +143,11 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     try {
       const exerciseNames = todayExercises.map(e => e.exercise_name || e.name || '').filter(Boolean);
       const adjustments = await parseAdjustmentWithAI(adjustInput, exerciseNames);
-      const { data: prog } = await supabase
-        .from('programs').select('id, total_days').eq('user_id', user.id)
-        .order('created_at', { ascending: false }).limit(1).maybeSingle();
 
-      if (prog && nextDayNum) {
+      if (nextDayId) {
         const { data: dayData } = await supabase
           .from('program_days').select('id, exercises')
-          .eq('program_id', prog.id).eq('day_number', nextDayNum).maybeSingle();
+          .eq('id', nextDayId).maybeSingle();
 
         if (dayData?.exercises && Array.isArray(dayData.exercises)) {
           const exercises = dayData.exercises as Array<Record<string, unknown>>;

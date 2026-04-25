@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_EXERCISES, type ExerciseStatus } from '../types';
 import { estimateKeyLifts } from '../engine/weightEstimator';
-import { generateProgram } from '../engine/programGenerator';
+import { generateWeekWithAI } from '../lib/openaiProgramGenerator';
 import {
   NO_EQUIPMENT_DEFAULT_EXERCISES,
   deriveEngineProfile,
@@ -150,7 +150,6 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
       const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
       if (!exercises || exercises.length === 0) throw new Error('No exercises');
 
-      const bmi = bodyweight / ((height / 100) ** 2);
       let currentKeyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
       if (!isNoEquipment) {
         const { data: ww } = await supabase.from('working_weights').select('weight, exercise:exercises(name)').eq('user_id', user.id);
@@ -179,14 +178,20 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         const program = generateNoEquipmentProgram(engineProfile, exercises, 1);
         programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
       } else {
-        const program = generateProgram(exercises, scheduleDays, bodyweight, experience, currentKeyLifts, goal, bmi, sessionMinutes, gender);
-        programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
+        const result = await generateWeekWithAI({
+          weekNum: 1,
+          exercises,
+          profile: { bodyweight, height, training_experience: experience, goal, schedule_days: scheduleDays, session_minutes: sessionMinutes, gender, limitations },
+          keyLifts: currentKeyLifts,
+          cycleNumber: 1,
+        });
+        programName = result.programName; splitType = result.splitType; totalDays = result.totalDays; days = result.days;
       }
 
       const { data: savedProgram, error: pErr } = await supabase.from('programs')
         .insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays }).select().single();
       if (pErr || !savedProgram) throw pErr;
-      await supabase.from('program_days').insert(days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises })));
+      await supabase.from('program_days').insert(days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises, week_num: 1 })));
 
       if (!isNoEquipment) {
         const mainLifts = [
@@ -236,15 +241,20 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         const program = generateNoEquipmentProgram(engineProfile, exercises, 1);
         programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
       } else {
-        const bmi = bodyweight / ((height / 100) ** 2);
-        const program = generateProgram(exercises, scheduleDays, bodyweight, experience, keyLifts, goal, bmi, sessionMinutes, gender);
-        programName = program.name; splitType = program.split_type; totalDays = program.total_days; days = program.days;
+        const result = await generateWeekWithAI({
+          weekNum: 1,
+          exercises,
+          profile: { bodyweight, height, training_experience: experience, goal, schedule_days: scheduleDays, session_minutes: sessionMinutes, gender, limitations },
+          keyLifts,
+          cycleNumber: 1,
+        });
+        programName = result.programName; splitType = result.splitType; totalDays = result.totalDays; days = result.days;
       }
 
       const { data: savedProgram, error: pErr } = await supabase.from('programs')
         .insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays }).select().single();
       if (pErr || !savedProgram) throw pErr;
-      await supabase.from('program_days').insert(days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises })));
+      await supabase.from('program_days').insert(days.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises, week_num: 1 })));
 
       if (!isNoEquipment) {
         const mainLifts = [

@@ -9,6 +9,7 @@ import { getCatalogEntry } from '../../data/exerciseCatalog';
 import {
   Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft,
 } from 'lucide-react';
+import { generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
 import type { Tab } from '../MainShell';
 
 // ─── Types ────────────────────────────────────────────────
@@ -120,6 +121,9 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
   const [confirmDeleteIdx, setConfirmDeleteIdx] = useState<number | null>(null);
   const [progressionResults, setProgressionResults] = useState<ProgressionResult[]>([]);
   const [deloadApplied, setDeloadApplied] = useState<{ days: number; percentage: number } | null>(null);
+  const [programId, setProgramId] = useState<string | null>(null);
+  const [totalDays, setTotalDays] = useState<number>(0);
+  const [currentSessCount, setCurrentSessCount] = useState<number>(0);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -189,6 +193,9 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
       setWeekNum(currentWeek);
       setBlockNum(bNum);
       setBlockName(bName);
+      setProgramId(program.id);
+      setTotalDays(program.total_days);
+      setCurrentSessCount(sessCount);
 
       // Intercept for travel draft
       if (travelDraft) {
@@ -226,12 +233,24 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
         }
       }
 
-      const { data: programDay } = await supabase
+      // Try week-specific day first, fall back to week 1 (base program)
+      let { data: programDay } = await supabase
         .from('program_days')
         .select('*')
         .eq('program_id', program.id)
+        .eq('week_num', currentWeek)
         .eq('day_number', currentDayNum)
         .maybeSingle();
+
+      if (!programDay) {
+        ({ data: programDay } = await supabase
+          .from('program_days')
+          .select('*')
+          .eq('program_id', program.id)
+          .eq('week_num', 1)
+          .eq('day_number', currentDayNum)
+          .maybeSingle());
+      }
 
       if (programDay) {
         setSessionName(programDay.day_name);
@@ -354,6 +373,17 @@ export default function SessionView({ onNavigate, travelDraft, onClearTravel }: 
     onClearTravel();
     setSaving(false);
     setSaved(true);
+
+    // Background: generate next week's program after completing the last session of this week
+    if (programId && totalDays > 0 && !travelDraft && weekNum > 0) {
+      const sessAfter = currentSessCount + 1;
+      if (sessAfter % totalDays === 0) {
+        const nextWeekNum = Math.floor(sessAfter / totalDays) + 1;
+        generateAndSaveNextWeek(user.id, programId, nextWeekNum).catch(err => {
+          console.error('[background] Next week generation failed:', err);
+        });
+      }
+    }
 
     toast.success('Sesión guardada correctamente');
     setTimeout(() => { onNavigate('dashboard'); }, notable.length > 0 ? 4000 : 1500);
