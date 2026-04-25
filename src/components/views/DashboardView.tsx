@@ -338,13 +338,13 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: 12, width: '100%', padding: '16px 20px', textAlign: 'left',
-          background: 'transparent',
+          background: 'color-mix(in oklab, var(--ink), transparent 97%)',
           border: '1px solid var(--rule)',
           borderRadius: 20, cursor: 'pointer',
           fontFamily: 'var(--sans)', transition: 'border-color .15s, background .15s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--muted)'; e.currentTarget.style.background = 'color-mix(in oklab, var(--ink), transparent 96%)'; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--rule)'; e.currentTarget.style.background = 'transparent'; }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--muted)'; e.currentTarget.style.background = 'color-mix(in oklab, var(--ink), transparent 94%)'; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--rule)'; e.currentTarget.style.background = 'color-mix(in oklab, var(--ink), transparent 97%)'; }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{
