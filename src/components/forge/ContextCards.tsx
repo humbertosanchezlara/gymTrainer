@@ -8,9 +8,14 @@ interface ContextCardsProps {
   lastSessionBlock?: string;
 }
 
+const labelStyle: React.CSSProperties = {
+  fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
+  color: 'var(--muted)', fontFamily: 'var(--sans)', marginBottom: 12,
+};
+
 const cardStyle: React.CSSProperties = {
-  flex: 1, border: '1px solid var(--rule)', borderRadius: 20, padding: 20,
-  display: 'flex', flexDirection: 'column', gap: 6,
+  border: '1px solid var(--rule)', borderRadius: 20, padding: '20px 24px',
+  display: 'flex', flexDirection: 'column',
 };
 
 export function ContextCards({
@@ -23,53 +28,51 @@ export function ContextCards({
   lastSessionBlock,
 }: ContextCardsProps) {
   return (
-    <div style={{ display: 'flex', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Weekly progress */}
       <div style={cardStyle}>
+        <div style={labelStyle}>Esta semana</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+          <span style={{
+            fontWeight: 700, fontSize: 40, letterSpacing: '-0.04em',
+            fontFamily: 'var(--sans)', lineHeight: 1,
+          }}>
+            {weeklyCompleted}
+          </span>
+          <span style={{ fontSize: 14, color: 'var(--muted)', fontFamily: 'var(--sans)' }}>
+            sesiones completadas
+          </span>
+        </div>
         <div style={{
-          fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
-          color: 'var(--muted)', fontFamily: 'var(--sans)', marginBottom: 4,
+          fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--muted)',
+          textTransform: 'uppercase', letterSpacing: '0.04em',
         }}>
-          Esta semana
-        </div>
-        <div style={{ fontWeight: 700, fontSize: 28, letterSpacing: '-0.03em', fontFamily: 'var(--sans)' }}>
-          {weeklyCompleted}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--sans)' }}>
-          sesiones completadas
-        </div>
-        <div style={{ marginTop: 8, fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
-          Sem {weekIndex}/{totalWeeks} · {blockLabel}
+          Semana {weekIndex} de {totalWeeks} · {blockLabel}
         </div>
       </div>
 
       {/* Last session */}
-      {lastSessionName ? (
-        <div style={cardStyle}>
-          <div style={{
-            fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
-            color: 'var(--muted)', fontFamily: 'var(--sans)', marginBottom: 4,
-          }}>
-            Última sesión
-          </div>
-          <div style={{
-            fontWeight: 700, fontSize: 15, letterSpacing: '-0.01em',
-            fontFamily: 'var(--sans)', lineHeight: 1.3, flex: 1,
-          }}>
-            {lastSessionName}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--sans)', marginTop: 4 }}>
-            {lastSessionDate}
-            {lastSessionBlock ? ` · ${lastSessionBlock}` : ''}
-          </div>
-        </div>
-      ) : (
-        <div style={{ ...cardStyle, alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--sans)', textAlign: 'center' }}>
+      <div style={cardStyle}>
+        <div style={labelStyle}>Última sesión</div>
+        {lastSessionName ? (
+          <>
+            <div style={{
+              fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em',
+              fontFamily: 'var(--sans)', lineHeight: 1.2, marginBottom: 8,
+            }}>
+              {lastSessionName}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--sans)' }}>
+              {lastSessionDate}
+              {lastSessionBlock ? ` · ${lastSessionBlock}` : ''}
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 14, color: 'var(--muted)', fontFamily: 'var(--sans)' }}>
             Sin sesiones aún
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
