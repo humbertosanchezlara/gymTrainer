@@ -5,7 +5,6 @@ function kgToLbs(kg: number): number { return Math.round(kg * KG_TO_LBS); }
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
-import { useIsMobile } from '../../hooks/useBreakpoint';
 import {
   generateTravelBlock,
   getCachedTravelBlock,
@@ -17,9 +16,12 @@ import {
   type TravelDayContext,
 } from '../../lib/openaiTravelGenerator';
 import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
-import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowRight, MapPin, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
 import type { Tab } from '../MainShell';
+import { HeroSession } from '../forge/HeroSession';
+import { AdjustWithAI } from '../forge/AdjustWithAI';
+import { ContextCards } from '../forge/ContextCards';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -39,7 +41,7 @@ export interface SessionLogEntry {
 interface ProgramDayExercise {
   exercise_id?: string;
   exercise_name?: string;
-  name?: string; // legacy alias — some older rows may still use this
+  name?: string;
   sets?: number;
   reps_min?: number;
   reps_max?: number;
@@ -65,10 +67,15 @@ function getBlockInfo(week: number): string {
   return 'Descarga';
 }
 
+function estimateDuration(exerciseCount: number): string {
+  const min = exerciseCount * 7;
+  const max = exerciseCount * 10;
+  return `${min}–${max} min`;
+}
+
 export default function DashboardView({ onNavigate, onStartSession, onStartTravel }: DashboardViewProps) {
   const { user } = useAuth();
   const toast = useToast();
-  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<Array<{ id: string; name: string; date: string; block_num: number | null }>>([]);
   const [nextDayName, setNextDayName] = useState<string | null>(null);
@@ -119,7 +126,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         const dayNum = (sessCount % pRes.data.total_days) + 1;
         setNextDayNum(dayNum);
 
-        // Try week-specific day first, fall back to week 1 (base program)
         let { data: dayData } = await supabase
           .from('program_days')
           .select('id, day_name, exercises')
@@ -272,6 +278,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
   const weekNum = completedWeeks + 1;
   const blockName = getBlockInfo(weekNum);
+  const weeklyCompleted = Math.min(nextDayNum ? nextDayNum - 1 : 0, 7);
 
   if (loading) {
     return (
@@ -282,139 +289,139 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     );
   }
 
+  const sessionName = nextDayName || (programComplete ? 'Sesión libre' : 'Tu rutina');
+  const lastSession = sessions[0] ?? null;
+
   return (
-    <div className="forge-fade" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Program complete banner */}
       {programComplete && (
-        <div style={{ border: '1px solid var(--accent)', borderRadius: 12, padding: 24, background: 'color-mix(in oklab, var(--accent), transparent 94%)', display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center' }}>
+        <div style={{
+          border: '1px solid var(--accent)', borderRadius: 16, padding: '20px 24px',
+          background: 'color-mix(in oklab, var(--accent), transparent 94%)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
+        }}>
           <div>
-            <div className="uc" style={{ color: 'var(--accent)', marginBottom: 6 }}>¡Programa completado!</div>
-            <div className="d-s" style={{ fontWeight: 600 }}>Completaste las <span className="serif" style={{ fontStyle: 'italic', color: 'var(--accent)' }}>{completedWeeks} semanas</span>. Hora de un nuevo ciclo.</div>
-          </div>
-          <button onClick={() => onNavigate('library')} className="btn btn-ghost" style={{ whiteSpace: 'nowrap' }}>
-            <RefreshCw size={14}/> Nuevo ciclo
-          </button>
-        </div>
-      )}
-
-      {/* Primary action card */}
-      <div style={{ background: 'var(--ink)', color: 'var(--paper)', borderRadius: 16, padding: isMobile ? '20px' : '28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-        {/* 1 — compact info row */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <span className="uc" style={{ opacity: .5, fontSize: 11 }}>{programComplete ? 'Entrena hoy' : 'Hoy entrenas'}</span>
-            <span style={{ fontWeight: 700, fontSize: 17, letterSpacing: '-0.02em' }}>
-              {nextDayName || (programComplete ? 'Sesión libre' : 'Tu rutina')}
-            </span>
-          </div>
-          {todayExercises.length > 0 && (
-            <span className="mono caption" style={{ opacity: .45 }}>{todayExercises.length} ejercicios</span>
-          )}
-        </div>
-
-        {/* 2 — start button */}
-        <button
-          onClick={onStartSession}
-          className="btn btn-accent btn-xl"
-          style={{ width: '100%', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}
-        >
-          Empezar entrenamiento <ArrowRight size={20}/>
-        </button>
-
-        {/* 3 — AI adjust chat */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div className="uc" style={{ opacity: .45, fontSize: 10 }}>Ajustar sesión de hoy</div>
-          <textarea
-            value={adjustInput}
-            onChange={e => setAdjustInput(e.target.value)}
-            placeholder='Ej: "me duele el hombro" · "solo tengo 30 min" · "estoy muy cansado"'
-            rows={3}
-            className="forge-field"
-            style={{ resize: 'none', background: 'rgba(241,237,228,0.07)', border: '1px solid rgba(241,237,228,0.15)', color: 'var(--paper)', borderRadius: 10, padding: '12px 14px', fontSize: 14, lineHeight: 1.5, fontFamily: 'var(--sans)', width: '100%', boxSizing: 'border-box' }}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && adjustInput.trim()) { e.preventDefault(); handleAdjust(); } }}
-          />
-          <button
-            onClick={handleAdjust}
-            disabled={!adjustInput.trim() || adjusting}
-            className="btn btn-ghost"
-            style={{ alignSelf: 'flex-end', color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.2)', opacity: (!adjustInput.trim() || adjusting) ? .4 : 1 }}
-          >
-            {adjusting ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> : 'Ajustar con IA'}
-          </button>
-        </div>
-
-        {/* 4 — travel mode */}
-        <button
-          onClick={() => setShowTravelSetup(true)}
-          className="btn btn-ghost btn-lg"
-          style={{ width: '100%', justifyContent: 'center', color: 'var(--paper)', borderColor: 'rgba(241,237,228,0.15)', marginTop: 2 }}
-        >
-          Sesión fuera del gym
-        </button>
-      </div>
-
-      {/* Exercise preview + side rail */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : todayExercises.length > 0 ? '1fr 280px' : '1fr', gap: 24, alignItems: 'start' }}>
-      {todayExercises.length > 0 && (
-        <div>
-          <div className="uc" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
-            <span>Ejercicios de hoy</span>
-            <span className="mono">{todayExercises.length} de {todayExercises.length}</span>
-          </div>
-          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
-            {todayExercises.map((e, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '40px 1fr 100px 100px', gap: isMobile ? '4px' : 16, padding: isMobile ? '14px 16px' : '20px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--rule)', alignItems: 'center' }}>
-                {!isMobile && <span className="mono caption" style={{ color: 'var(--muted)' }}>{String(i+1).padStart(2,'0')}</span>}
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.exercise_name || e.name || '—'}</div>
-                  {isMobile && <div className="mono caption" style={{ color: 'var(--muted)', marginTop: 2 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''} · {e.weight ? `${e.weight} kg / ${kgToLbs(e.weight)} lb` : 'BW'}</div>}
-                </div>
-                {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}</div>}
-                {!isMobile && <div className="mono" style={{ fontSize: 14 }}>{e.weight ? `${e.weight} kg / ${kgToLbs(e.weight)} lb` : 'BW'}</div>}
-              </div>
-            ))}
-          </div>
-
-        </div>
-      )}
-
-      {/* Side rail */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Week progress */}
-        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: 24 }}>
-          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16 }}>Esta semana</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-            <span className="d-l" style={{ fontWeight: 600 }}>{Math.min(nextDayNum ? nextDayNum - 1 : 0, 7)}</span>
-            <span className="body-s" style={{ color: 'var(--muted)' }}>sesiones completadas</span>
-          </div>
-          <div className="mono caption" style={{ marginTop: 12, color: 'var(--muted)' }}>Semana {weekNum} de 12 · {blockName}</div>
-        </div>
-
-        {/* Last session */}
-        {sessions.length > 0 && (
-          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: 24 }}>
-            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 16 }}>Última sesión</div>
-            <div className="d-s" style={{ fontWeight: 600 }}>{sessions[0].name}</div>
-            <div className="caption" style={{ color: 'var(--muted)', marginTop: 4 }}>
-              {new Date(sessions[0].date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
-              {sessions[0].block_num ? ` · Bloque ${sessions[0].block_num}` : ''}
+            <div style={{ color: 'var(--accent)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+              ¡Programa completado!
+            </div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>
+              Completaste las <em style={{ color: 'var(--accent)' }}>{completedWeeks} semanas</em>. Hora de un nuevo ciclo.
             </div>
           </div>
-        )}
+          <button onClick={() => onNavigate('library')} className="btn btn-ghost" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <RefreshCw size={14} /> Nuevo ciclo
+          </button>
+        </div>
+      )}
 
-        {/* Program link */}
-        <button
-          onClick={() => onNavigate('program')}
-          style={{ background: 'transparent', border: '1px dashed var(--rule)', borderRadius: 12, padding: 24, textAlign: 'left', cursor: 'pointer', color: 'var(--ink)', fontFamily: 'var(--sans)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-        >
-          <span className="body" style={{ fontWeight: 600 }}>Ver programa completo</span>
-          <ArrowRight size={16}/>
-        </button>
-      </div>
-      </div>{/* /exercise preview + side rail grid */}
+      {/* Hero: today's session */}
+      <HeroSession
+        sessionName={sessionName}
+        exerciseCount={todayExercises.length}
+        duration={todayExercises.length > 0 ? estimateDuration(todayExercises.length) : undefined}
+        onStart={onStartSession}
+      />
+
+      {/* AI adjust */}
+      <AdjustWithAI
+        value={adjustInput}
+        onChange={setAdjustInput}
+        onSubmit={handleAdjust}
+        loading={adjusting}
+      />
+
+      {/* Travel mode */}
+      <button
+        type="button"
+        onClick={() => setShowTravelSetup(true)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, width: '100%', padding: '16px 20px', textAlign: 'left',
+          background: 'transparent',
+          border: '1px solid var(--rule)',
+          borderRadius: 20, cursor: 'pointer',
+          fontFamily: 'var(--sans)', transition: 'border-color .15s, background .15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--muted)'; e.currentTarget.style.background = 'color-mix(in oklab, var(--ink), transparent 96%)'; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--rule)'; e.currentTarget.style.background = 'transparent'; }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{
+            width: 36, height: 36, borderRadius: 12,
+            background: 'var(--ink)', color: 'var(--paper)',
+            display: 'grid', placeItems: 'center', flexShrink: 0,
+          }}>
+            <MapPin size={16} />
+          </span>
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>Sesión fuera del gym</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Entrena en casa o viajando</span>
+          </span>
+        </span>
+        <ArrowRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      </button>
+
+      {/* Context cards */}
+      <ContextCards
+        weeklyCompleted={weeklyCompleted}
+        weekIndex={weekNum}
+        totalWeeks={12}
+        blockLabel={blockName}
+        lastSessionName={lastSession?.name}
+        lastSessionDate={lastSession ? new Date(lastSession.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : undefined}
+        lastSessionBlock={lastSession?.block_num ? `Bloque ${lastSession.block_num}` : undefined}
+      />
+
+      {/* Exercise preview (collapsed on mobile, shown as subtle list) */}
+      {todayExercises.length > 0 && (
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 20, overflow: 'hidden' }}>
+          <div style={{
+            padding: '14px 20px', borderBottom: '1px solid var(--rule)',
+            fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
+            color: 'var(--muted)', fontFamily: 'var(--sans)',
+            display: 'flex', justifyContent: 'space-between',
+          }}>
+            <span>Ejercicios de hoy</span>
+            <span style={{ fontFamily: 'var(--mono)' }}>{todayExercises.length}</span>
+          </div>
+          {todayExercises.map((e, i) => (
+            <div key={i} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '12px 20px',
+              borderTop: i === 0 ? 'none' : '1px solid var(--rule)',
+            }}>
+              <span style={{ fontWeight: 500, fontSize: 14 }}>{e.exercise_name || e.name || '—'}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                {e.sets}×{e.reps_min}{e.reps_max && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ''}
+                {e.weight ? ` · ${e.weight} kg / ${kgToLbs(e.weight)} lb` : ' · BW'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Ver programa completo */}
+      <button
+        type="button"
+        onClick={() => onNavigate('program')}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          width: '100%', padding: '16px 20px',
+          background: 'transparent',
+          border: '1px dashed var(--rule)',
+          borderRadius: 20, cursor: 'pointer',
+          fontFamily: 'var(--sans)', fontWeight: 600, fontSize: 14,
+          color: 'var(--ink)', transition: 'border-color .15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--muted)'; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--rule)'; }}
+      >
+        <span>Ver programa completo</span>
+        <ArrowRight size={16} />
+      </button>
 
       {/* Travel setup modal */}
       <Modal
