@@ -13,6 +13,72 @@ import { generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { Tab } from '../MainShell';
 
+// ─── Weight unit helpers ───────────────────────────────────
+const KG_TO_LBS = 2.20462;
+function kgToLbs(kg: number): number { return Math.round(kg * KG_TO_LBS); }
+function lbsToKg(lbs: number): number { return Math.round((lbs / KG_TO_LBS) * 10) / 10; }
+
+interface WeightCellProps {
+  kg: number;
+  isMobile: boolean;
+  isBW: boolean;
+  onChange: (kg: number) => void;
+  onAddWeight: () => void;
+}
+
+function WeightCell({ kg, isMobile, isBW, onChange, onAddWeight }: WeightCellProps) {
+  const [lbsVal, setLbsVal] = useState(() => kgToLbs(kg));
+  const prevKgRef = useRef(kg);
+
+  useEffect(() => {
+    if (prevKgRef.current !== kg) {
+      prevKgRef.current = kg;
+      setLbsVal(kgToLbs(kg));
+    }
+  }, [kg]);
+
+  const baseStyle: React.CSSProperties = {
+    width: '100%', border: 'none', background: 'transparent',
+    textAlign: 'center', fontFamily: 'var(--mono)',
+    fontSize: isMobile ? 17 : 20, fontWeight: 600, outline: 'none', lineHeight: 1.2,
+  };
+  const unitLabel: React.CSSProperties = { fontSize: 8, color: 'var(--muted)', fontFamily: 'var(--sans)', flexShrink: 0 };
+
+  if (isBW) {
+    return (
+      <>
+        <span style={{ ...baseStyle, color: 'var(--muted)', display: 'block' }}>BW</span>
+        <button onClick={onAddWeight} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--sans)', fontSize: 9, color: 'var(--muted)', padding: 0, textDecoration: 'underline' }}>+ peso</button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, width: '100%', justifyContent: 'center' }}>
+        <input
+          type="number" className="session-num-input"
+          value={kg} onChange={e => onChange(+e.target.value)}
+          inputMode="decimal" step={2.5} min={0}
+          style={{ ...baseStyle, color: 'var(--ink)' }}
+        />
+        <span style={unitLabel}>kg</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, width: '100%', justifyContent: 'center' }}>
+        <input
+          type="number" className="session-num-input"
+          value={lbsVal}
+          onChange={e => setLbsVal(+e.target.value)}
+          onBlur={e => onChange(lbsToKg(+e.target.value))}
+          inputMode="decimal" step={5} min={0}
+          style={{ ...baseStyle, color: 'var(--muted)' }}
+        />
+        <span style={unitLabel}>lb</span>
+      </div>
+    </>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────
 export interface SessionLogEntry {
   exercise_id: string;
@@ -705,27 +771,15 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
                 />
               </div>
               {/* PESO */}
-              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
-                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>{isMobile ? 'kg' : 'PESO (kg)'}</span>
-                {travelDraft && log.weight === 0
-                  ? <span style={{ fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--muted)', lineHeight: 1.2 }}>BW</span>
-                  : <input
-                      type="number"
-                      className="session-num-input"
-                      value={log.weight}
-                      onChange={e => updateLog(i, 'weight', +e.target.value)}
-                      inputMode="decimal"
-                      step={2.5}
-                      min={0}
-                      style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
-                    />
-                }
-                {travelDraft && log.weight === 0 && (
-                  <button
-                    onClick={() => updateLog(i, 'weight', 2.5)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--sans)', fontSize: 9, color: 'var(--muted)', padding: 0, textDecoration: 'underline' }}
-                  >+ peso</button>
-                )}
+              <div style={{ background: 'var(--paper)', padding: isMobile ? '10px 4px' : '12px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>PESO</span>
+                <WeightCell
+                  kg={log.weight}
+                  isMobile={isMobile}
+                  isBW={!!(travelDraft && log.weight === 0)}
+                  onChange={kg => updateLog(i, 'weight', kg)}
+                  onAddWeight={() => updateLog(i, 'weight', 2.5)}
+                />
               </div>
               {/* RPE */}
               <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
@@ -815,7 +869,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
                   >
                     <span style={{ fontSize: 14, fontWeight: 500 }}>{r.exercise_name}</span>
                     {r.action === 'up'
-                      ? <span className="mono caption" style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>↑ {r.prev_weight} → {r.next_weight} kg</span>
+                      ? <span className="mono caption" style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>↑ {r.prev_weight} kg ({kgToLbs(r.prev_weight)} lb) → {r.next_weight} kg ({kgToLbs(r.next_weight)} lb)</span>
                       : <span className="mono caption" style={{ color: 'var(--muted)', flexShrink: 0 }}>⚠ Revisa el peso</span>}
                   </div>
                 ))}

@@ -37,6 +37,7 @@ export interface Profile {
   session_minutes: number;
   equipment_access: string;
   limitations: string;
+  weight_unit: 'kg' | 'lbs';
   created_at: string;
 }
 
