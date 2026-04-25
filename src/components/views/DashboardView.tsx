@@ -3,7 +3,14 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useBreakpoint';
-import { deriveEngineProfile, generateNoEquipmentProgram, NO_EQUIPMENT_DEFAULT_EXERCISES } from '../../engine/noEquipmentAdapter';
+import {
+  generateTravelBlock,
+  getCachedTravelBlock,
+  getNextTravelSession,
+  saveTravelBlock,
+  type TravelBlockConfig,
+  type CachedTravelBlock,
+} from '../../lib/openaiTravelGenerator';
 import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
 import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
@@ -204,62 +211,32 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     if (!user) return;
     setAdjusting(true);
     try {
-      // Pre-seed all band/bodyweight exercises so the engine can always find them
-      await supabase.from('exercises').upsert(
-        NO_EQUIPMENT_DEFAULT_EXERCISES.map(ex => ({
-          user_id: user.id,
-          name: ex.name,
-          category: ex.category,
-          status: 'YES' as const,
-        })),
-        { onConflict: 'user_id,name', ignoreDuplicates: true }
-      );
-
-      const [{ data: profile }, { data: exercises }] = await Promise.all([
-        supabase.from('profiles').select('training_experience, session_minutes, goal').eq('id', user.id).single(),
-        supabase.from('exercises').select('*').eq('user_id', user.id).in('status', ['YES', 'SUB'])
-      ]);
-
-      const eProf = deriveEngineProfile({
-        experience: profile?.training_experience || 'intermediate',
-        scheduleDays: travelDays,
-        sessionMinutes: profile?.session_minutes || 45,
-        goal: profile?.goal || 'general',
+      const config: TravelBlockConfig = {
         hasBands: travelHasBands,
         hasPullupBar: travelHasPullupBar,
+        travelDays,
         volumeLevel: travelVolume,
-      });
+      };
 
-      const travelProg = generateNoEquipmentProgram(eProf, exercises || []);
-      const day = travelProg.days[0];
+      let block: CachedTravelBlock | null = getCachedTravelBlock(user.id, config);
 
-      const missingExercises = day.exercises.filter(ex => ex.exercise_id.startsWith('MISSING:'));
-      if (missingExercises.length > 0) {
-        const namesToInsert = Array.from(new Set(missingExercises.map(ex => ex.exercise_name)));
-        const inserts = namesToInsert.map(name => {
-          const cat = missingExercises.find(e => e.exercise_name === name)?.category || 'CORE';
-          return { user_id: user.id, name, category: cat, status: 'YES' };
-        });
-        const { data: inserted } = await supabase.from('exercises').insert(inserts).select();
-        if (inserted) {
-          missingExercises.forEach(missing => {
-            const match = inserted.find((i: { name: string; id: string }) => i.name === missing.exercise_name);
-            missing.exercise_id = match ? match.id : '';
-          });
-        }
+      if (!block) {
+        const generated = await generateTravelBlock(user.id, config);
+        block = {
+          days: generated,
+          current_index: 0,
+          config,
+          generated_at: new Date().toISOString(),
+        };
+        saveTravelBlock(user.id, block);
       }
 
-      const travelDraft: SessionLogEntry[] = day.exercises.map(ex => ({
-        exercise_id: ex.exercise_id.startsWith('MISSING:') ? '' : ex.exercise_id,
-        exercise_name: ex.exercise_name,
-        sets: ex.sets,
-        reps_per_set: ex.reps_max || ex.reps_min || 10,
-        weight: 0,
-        rpe: ex.rpe || 8,
-        notes: ex.notes || 'Fuera del gym',
-      }));
+      const { entries } = await getNextTravelSession(user.id, block);
 
-      onStartTravel(travelDraft);
+      block = { ...block, current_index: (block.current_index + 1) % block.days.length };
+      saveTravelBlock(user.id, block);
+
+      onStartTravel(entries);
       setShowTravelSetup(false);
     } catch {
       toast.error('Error al generar la sesión fuera del gym.');
