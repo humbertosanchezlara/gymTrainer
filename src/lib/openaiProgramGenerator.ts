@@ -138,15 +138,16 @@ async function enhanceWithAI(
 
   const systemPrompt = `Eres un entrenador de fuerza experto en periodización. Mejora la selección de ejercicios y añade instrucciones de variación a un programa ya estructurado.
 
-REGLAS ESTRICTAS:
-- SOLO usa exercise_id y exercise_name de la biblioteca proporcionada (nunca inventes IDs)
-- Ejercicios PRIMARY y SECONDARY: mantén el mismo ejercicio, solo mejora las notas (tempo, agarre, pausa)
-- Ejercicios ACCESSORY: puedes sustituir por otro de la misma categoría si el rendimiento lo justifica
-- Si hay tendencia "struggling" en un accesorio → sustituye por variante más fácil de la misma categoría
-- Si hay tendencia "improving" → añade nota de posible aumento de peso la próxima sesión
-- Notas breves y concretas: "3-1-1 tempo · 90s descanso" o "agarre neutro · excéntrico lento"
-- Máximo 2 cambios de accesorios por semana dentro del mismo bloque
-- Responde SOLO con JSON válido`;
+REGLAS ESTRICTAS (en orden de prioridad):
+1. LIMITACIONES DEL USUARIO (MÁXIMA PRIORIDAD): Si cualquier ejercicio del programa base aparece en las limitaciones/lesiones del usuario (independientemente de su rol: primary, secondary o accessory), DEBES reemplazarlo obligatoriamente por otro ejercicio válido de la misma categoría de la biblioteca. Esta regla anula todas las demás.
+2. SOLO usa exercise_id y exercise_name de la biblioteca proporcionada (nunca inventes IDs)
+3. Ejercicios PRIMARY y SECONDARY sin conflicto de limitación: mantén el mismo ejercicio, solo mejora las notas (tempo, agarre, pausa)
+4. Ejercicios ACCESSORY: puedes sustituir por otro de la misma categoría si el rendimiento lo justifica
+5. Si hay tendencia "struggling" en un accesorio → sustituye por variante más fácil de la misma categoría
+6. Si hay tendencia "improving" → añade nota de posible aumento de peso la próxima sesión
+7. Notas breves y concretas: "3-1-1 tempo · 90s descanso" o "agarre neutro · excéntrico lento"
+8. Máximo 2 cambios de accesorios por semana dentro del mismo bloque (no aplica a cambios por limitaciones)
+9. Responde SOLO con JSON válido`;
 
   const context = {
     bloque: { nombre: block.name, semana: weekNum, reps: `${block.repsMin}-${block.repsMax}`, rpe: `${block.rpeMin}-${block.rpeMax}` },
@@ -207,6 +208,17 @@ REGLAS ESTRICTAS:
 
   const exerciseMap = new Map(exercises.map(e => [e.id, e]));
 
+  const norm = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  const conflictsWithLimitations = (exerciseName: string): boolean => {
+    if (!profile.limitations) return false;
+    const limNorm = norm(profile.limitations);
+    // All significant words (>3 chars) of the exercise name must appear in the limitations text
+    const words = norm(exerciseName).split(/\s+/).filter(w => w.length > 3);
+    return words.length > 0 && words.every(w => limNorm.includes(w));
+  };
+
   return baseDays.map(baseDay => {
     const llmDay = parsed.days.find(d => d.day_number === baseDay.day_number);
     if (!llmDay || !Array.isArray(llmDay.exercises)) return baseDay;
@@ -221,12 +233,12 @@ REGLAS ESTRICTAS:
       const llmEx = validLLM[idx];
       if (!llmEx) return baseEx;
 
-      // Primary/secondary: keep exercise, update notes only
-      if (baseEx.role === 'primary' || baseEx.role === 'secondary') {
+      // Primary/secondary: keep exercise unless it conflicts with user limitations
+      if ((baseEx.role === 'primary' || baseEx.role === 'secondary') && !conflictsWithLimitations(baseEx.exercise_name)) {
         return { ...baseEx, notes: llmEx.notes || baseEx.notes };
       }
 
-      // Accessory: allow swap, re-estimate weight for the new exercise
+      // Accessory (or primary/secondary with limitation conflict): allow swap
       const selectedEx = exerciseMap.get(llmEx.exercise_id);
       if (!selectedEx || selectedEx.id === baseEx.exercise_id) {
         return { ...baseEx, notes: llmEx.notes || baseEx.notes };
