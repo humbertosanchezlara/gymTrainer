@@ -48,10 +48,10 @@ export async function parseAdjustmentWithAI(
 
   const resp = await client.chat.completions.create({
     model: 'gpt-5.4-mini',
-    max_tokens: 512,
+    max_completion_tokens: 512,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'developer', content: SYSTEM_PROMPT },
       {
         role: 'user',
         content: `${userMessage}${contextLine}\n\nDevuelve: { "adjustments": [...] }`,
