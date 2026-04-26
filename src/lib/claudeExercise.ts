@@ -17,10 +17,10 @@ export async function searchExercise(query: string): Promise<ExerciseSearchResul
 
   const resp = await client.chat.completions.create({
     model: 'gpt-5.4-mini',
-    max_tokens: 512,
+    max_completion_tokens: 512,
     response_format: { type: 'json_object' },
     messages: [{
-      role: 'system',
+      role: 'developer',
       content: 'Eres experto en fitness. Respondes SOLO con JSON válido, sin texto adicional.',
     }, {
       role: 'user',
