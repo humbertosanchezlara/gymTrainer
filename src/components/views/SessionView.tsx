@@ -346,7 +346,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         const dayExercises = (Array.isArray(programDay.exercises) ? programDay.exercises : []) as Array<Record<string, unknown>>;
         const preFilled: SessionLogEntry[] = dayExercises.map((ex) => {
           let currentWeight = weightMap.get(ex.exercise_id as string) ?? (ex.weight as number) ?? 0;
-          let rpe = (ex.rpe as number) ?? 7;
+          let rpe = (ex.rpe as number) || 7;
 
           if (applyPenalty && currentWeight > 0) {
             currentWeight = Math.round((currentWeight * penaltyScale) / 2.5) * 2.5;
@@ -357,7 +357,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
             exercise_id: ex.exercise_id as string,
             exercise_name: (ex.exercise_name as string) || '—',
             sets: ex.sets as number,
-            reps_per_set: (ex.reps_max as number) ?? (ex.reps_min as number) ?? 8,
+            reps_per_set: (ex.reps_min as number) ?? 8,
             weight: currentWeight,
             rpe,
             notes: applyPenalty && currentWeight > 0 ? 'Carga reducida (Readaptación)' : '',
