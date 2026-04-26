@@ -227,7 +227,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       }
 
       setAdjustInput('');
-    } catch {
+    } catch (err) {
+      console.error('[handleAdjust] Error:', err);
       toast.error('No se pudieron aplicar los ajustes. Intenta de nuevo.');
     } finally {
       setAdjusting(false);
