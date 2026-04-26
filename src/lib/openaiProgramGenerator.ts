@@ -187,11 +187,10 @@ REGLAS ESTRICTAS:
 
   const resp = await client.chat.completions.create({
     model: 'gpt-5.4-mini',
-    max_tokens: 3000,
-    temperature: 0.35,
+    max_completion_tokens: 3000,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'developer', content: systemPrompt },
       {
         role: 'user',
         content: `${JSON.stringify(context, null, 2)}\n\nDevuelve exactamente: { "days": [{ "day_number": N, "exercises": [{ "exercise_id": "...", "exercise_name": "...", "role": "primary|secondary|accessory", "notes": "..." }] }] }`,

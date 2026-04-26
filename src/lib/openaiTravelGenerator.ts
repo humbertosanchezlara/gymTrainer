@@ -294,11 +294,10 @@ REGLAS:
 
   const resp = await client.chat.completions.create({
     model: 'gpt-5.4-mini',
-    max_tokens: 4000,
-    temperature: 0.4,
+    max_completion_tokens: 4000,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'developer', content: systemPrompt },
       {
         role: 'user',
         content: `Genera ${numDays} día(s) de entrenamiento fuera del gym.\n\nContexto:\n${JSON.stringify(context, null, 2)}\n\nDevuelve exactamente este formato:\n${outputSchema}`,
