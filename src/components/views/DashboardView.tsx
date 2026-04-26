@@ -203,7 +203,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
               const target = adj.targetExerciseName.toLowerCase();
               const targetWords = target.split(/\s+/).filter(w => w.length > 2);
               const matchIdx = adjusted.findIndex((ex) => {
-                const exName = ((ex.name as string) ?? '').toLowerCase();
+                const exName = (((ex.exercise_name as string) ?? (ex.name as string)) ?? '').toLowerCase();
                 return targetWords.some(w => exName.includes(w)) || exName.includes(target);
               });
               if (matchIdx !== -1) {
@@ -213,7 +213,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
                   .eq('user_id', user.id).in('status', ['YES', 'SUB']).eq('category', matchedEx.category).neq('id', matchedEx.exercise_id);
                 const substitute = candidates?.find(c => !currentIds.has(c.id));
                 if (substitute) {
-                  adjusted[matchIdx] = { ...matchedEx, exercise_id: substitute.id, name: substitute.name, notes: 'Sustituido por solicitud' };
+                  adjusted[matchIdx] = { ...matchedEx, exercise_id: substitute.id, exercise_name: substitute.name, name: substitute.name, notes: 'Sustituido por solicitud' };
                 }
               }
             }

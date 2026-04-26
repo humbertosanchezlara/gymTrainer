@@ -4,8 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import type { Exercise } from '../../types';
 import { DEFAULT_EXERCISES, type MovementCategory, type ExerciseStatus, CATEGORY_LABELS } from '../../types';
-import { generateWeekWithAI } from '../../lib/openaiProgramGenerator';
-import { deriveEngineProfile, generateNoEquipmentProgram } from '../../engine/noEquipmentAdapter';
+import { estimateWeight } from '../../engine/weightEstimator';
 import Modal from '../Modal';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { getCatalogEntry } from '../../data/exerciseCatalog';
@@ -68,74 +67,77 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
     if (!user) return;
     setRegenerating(true);
     try {
+      const { data: program } = await supabase
+        .from('programs').select('id')
+        .eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (!program) throw new Error('No program found');
+
+      const { data: allDays } = await supabase
+        .from('program_days').select('id, exercises')
+        .eq('program_id', program.id);
+      if (!allDays || allDays.length === 0) throw new Error('No program days found');
+
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('bodyweight, height, training_experience, goal, schedule_days, session_minutes, gender, equipment_access')
+        .from('profiles').select('bodyweight, training_experience, gender')
         .eq('id', user.id).single();
-      if (!profile) throw new Error('Profile not found');
 
-      const { data: yesExercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
-      if (!yesExercises || yesExercises.length === 0) throw new Error('No exercises with YES status');
+      const { data: allExercises } = await supabase
+        .from('exercises').select('id, name, category, status')
+        .eq('user_id', user.id);
 
-      const { data: wwData } = await supabase.from('working_weights').select('exercise_id, weight, exercise:exercises(name)').eq('user_id', user.id);
-      const keyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
-      const workingWeightMap = new Map<string, number>();
-      if (wwData) {
-        for (const ww of wwData) {
-          const name = (ww.exercise as { name?: string })?.name;
-          workingWeightMap.set(ww.exercise_id, Number(ww.weight));
-          if (name === 'Barra Back Squat') keyLifts.squat = Number(ww.weight);
-          if (name === 'Barra Press de Banca') keyLifts.bench = Number(ww.weight);
-          if (name === 'Peso Muerto Convencional') keyLifts.deadlift = Number(ww.weight);
-          if (name === 'Barra Press Militar') keyLifts.ohp = Number(ww.weight);
+      const exerciseMap = new Map((allExercises ?? []).map(e => [e.id, e]));
+
+      // Available substitutes per category (YES only — SUB is fallback for missing equipment, not for swap)
+      const yesByCategory = new Map<string, Array<{ id: string; name: string }>>();
+      for (const ex of (allExercises ?? [])) {
+        if (ex.status === 'YES') {
+          if (!yesByCategory.has(ex.category)) yesByCategory.set(ex.category, []);
+          yesByCategory.get(ex.category)!.push({ id: ex.id, name: ex.name });
         }
       }
 
-      const { data: oldProgram } = await supabase.from('programs').select('id, total_days, total_weeks').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      const { count: totalSessions } = await supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', user.id);
-      const { count: programCount } = await supabase.from('programs').select('id', { count: 'exact', head: true }).eq('user_id', user.id);
+      let swapCount = 0;
 
-      const sessCount = totalSessions ?? 0;
-      const hasHistory = sessCount > 0;
-      const prevCompleted = oldProgram ? sessCount >= (oldProgram.total_days * (oldProgram.total_weeks ?? 12)) ? 1 : 0 : 0;
-      const cycleNumber = Math.max(1, (programCount ?? 1) - 1 + prevCompleted);
+      for (const day of allDays) {
+        const exercises = day.exercises as Array<Record<string, unknown>>;
+        const usedIds = new Set(exercises.map(e => e.exercise_id as string));
+        let changed = false;
 
-      const bw = Number(profile.bodyweight) || 75;
-      const ht = Number(profile.height) || 170;
+        const updated = exercises.map(ex => {
+          const exId = ex.exercise_id as string;
+          const exInfo = exerciseMap.get(exId);
 
-      const isNoEq = profile.equipment_access === 'no_equipment';
-
-      let programName: string, splitType: string, totalDays: number;
-      let programDays: { day_number: number; day_name: string; exercises: unknown[] }[];
-
-      if (isNoEq) {
-        const p = generateNoEquipmentProgram(deriveEngineProfile({ experience: profile.training_experience, scheduleDays: profile.schedule_days, sessionMinutes: profile.session_minutes ?? 60, goal: profile.goal }), yesExercises, 1);
-        programName = p.name; splitType = p.split_type; totalDays = p.total_days; programDays = p.days;
-      } else {
-        const result = await generateWeekWithAI({
-          weekNum: 1,
-          exercises: yesExercises,
-          profile: { bodyweight: bw, height: ht, training_experience: profile.training_experience, goal: profile.goal, schedule_days: profile.schedule_days, session_minutes: profile.session_minutes ?? 60, gender: profile.gender ?? 'male' },
-          keyLifts: keyLifts.squat > 0 ? keyLifts : { squat: 0, bench: 0, deadlift: 0, ohp: 0 },
-          cycleNumber,
-          workingWeights: hasHistory ? workingWeightMap : undefined,
+          if (!exInfo || exInfo.status === 'NO') {
+            const category = (ex.category as string) ?? exInfo?.category;
+            const candidates = yesByCategory.get(category) ?? [];
+            const substitute = candidates.find(s => !usedIds.has(s.id));
+            if (substitute) {
+              usedIds.delete(exId);
+              usedIds.add(substitute.id);
+              changed = true;
+              swapCount++;
+              const newWeight = Math.round(
+                estimateWeight(substitute.name, Number(profile?.bodyweight) || 75, profile?.training_experience ?? 'intermediate', profile?.gender ?? 'male') / 2.5
+              ) * 2.5;
+              return { ...ex, exercise_id: substitute.id, exercise_name: substitute.name, name: substitute.name, weight: newWeight };
+            }
+          }
+          return ex;
         });
-        programName = result.programName; splitType = result.splitType; totalDays = result.totalDays; programDays = result.days;
+
+        if (changed) {
+          await supabase.from('program_days').update({ exercises: updated }).eq('id', day.id);
+        }
       }
 
-      if (oldProgram) {
-        await supabase.from('program_days').delete().eq('program_id', oldProgram.id);
-        await supabase.from('programs').delete().eq('id', oldProgram.id);
-      }
-
-      const { data: savedProgram, error: pErr } = await supabase.from('programs').insert({ user_id: user.id, name: programName, split_type: splitType, total_days: totalDays }).select().single();
-      if (pErr || !savedProgram) throw pErr;
-
-      await supabase.from('program_days').insert(programDays.map((d) => ({ program_id: savedProgram.id, day_number: d.day_number, day_name: d.day_name, exercises: d.exercises, week_num: 1 })));
       localStorage.removeItem(sessionDraftKey(user.id));
-      toast.success('Programa actualizado correctamente');
+      if (swapCount > 0) {
+        toast.success(`${swapCount} ejercicio${swapCount > 1 ? 's sustituidos' : ' sustituido'} en tu programa`);
+      } else {
+        toast.success('Tu programa ya está al día con los cambios');
+      }
     } catch {
-      toast.error('No se pudo regenerar el programa. Intenta de nuevo.');
+      toast.error('No se pudo actualizar el programa. Intenta de nuevo.');
     }
     setRegenerating(false);
   };
