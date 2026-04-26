@@ -213,7 +213,8 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
       notes: 'Peso de calibración — ajusta según tus sensaciones',
     };
     const updated = [...programDay.exercises, newEx];
-    await supabase.from('program_days').update({ exercises: updated }).eq('program_id', programDay.programId).eq('day_number', programDay.dayNum);
+    const { error: updateErr } = await supabase.from('program_days').update({ exercises: updated }).eq('program_id', programDay.programId).eq('day_number', programDay.dayNum);
+    if (updateErr) { setError('No se pudo añadir el ejercicio al programa. Intenta de nuevo.'); return; }
     setDoneMessage(`¡${savedExercise.name} añadido a ${programDay.dayName}! Aparecerá en tu próxima sesión con un peso de calibración de ${weight} kg.`);
     setStep('DONE');
   };
@@ -238,7 +239,8 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
     };
     const replaced = programDay.exercises.find(ex => ex.exercise_id === replaceId);
     const updated = programDay.exercises.map(ex => ex.exercise_id === replaceId ? newEx : ex);
-    await supabase.from('program_days').update({ exercises: updated }).eq('program_id', programDay.programId).eq('day_number', programDay.dayNum);
+    const { error: updateErr } = await supabase.from('program_days').update({ exercises: updated }).eq('program_id', programDay.programId).eq('day_number', programDay.dayNum);
+    if (updateErr) { setError('No se pudo actualizar el programa. Intenta de nuevo.'); return; }
     setDoneMessage(`¡${savedExercise.name} reemplazó a "${replaced?.exercise_name ?? replaceId}" en ${programDay.dayName}! Aparecerá en tu próxima sesión con un peso de calibración de ${weight} kg.`);
     setStep('DONE');
   };

@@ -18,6 +18,7 @@ export default function ProgramView() {
 
   useEffect(() => {
     if (!user) return;
+    let mounted = true;
 
     supabase
       .from('sessions')
@@ -27,6 +28,7 @@ export default function ProgramView() {
       .limit(1)
       .maybeSingle()
       .then(({ data: sessionData }) => {
+        if (!mounted) return;
         if (sessionData?.week_num) {
           setCurrentWeek(sessionData.week_num);
           setSelectedWeek(sessionData.week_num);
@@ -41,6 +43,7 @@ export default function ProgramView() {
       .limit(1)
       .single()
       .then(({ data }) => {
+        if (!mounted) return;
         if (data) {
           setProgram(data);
           supabase
@@ -49,6 +52,7 @@ export default function ProgramView() {
             .eq('program_id', data.id)
             .order('day_number')
             .then(({ data: dayData }) => {
+              if (!mounted) return;
               if (dayData) setDays(dayData);
               setLoading(false);
             });
@@ -56,6 +60,8 @@ export default function ProgramView() {
           setLoading(false);
         }
       });
+
+    return () => { mounted = false; };
   }, [user]);
 
   if (loading) {
