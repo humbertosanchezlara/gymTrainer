@@ -112,13 +112,13 @@ export default function ProgramView() {
         marginBottom: 20,
       }}>
         <div style={{
-          fontFamily: 'var(--serif)',
-          fontStyle: 'italic',
+          fontFamily: 'var(--sans)',
           fontSize: 38,
-          fontWeight: 500,
+          fontWeight: 700,
           lineHeight: 1,
           minWidth: 38,
           textAlign: 'center',
+          letterSpacing: '-0.03em',
         }}>{currentWeek}</div>
 
         <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(241,237,228,0.15)' }} />
@@ -132,11 +132,11 @@ export default function ProgramView() {
             opacity: 0.55,
           }}>SEMANA {currentWeek} / {totalWeeks}</div>
           <div style={{
-            fontFamily: 'var(--serif)',
+            fontFamily: 'var(--sans)',
             fontSize: 20,
-            fontWeight: 500,
+            fontWeight: 600,
             marginTop: 2,
-            letterSpacing: '-0.005em',
+            letterSpacing: '-0.02em',
           }}>Bloque {block.name}</div>
         </div>
 
@@ -150,10 +150,10 @@ export default function ProgramView() {
             marginBottom: 2,
           }}>OBJETIVO</div>
           <div style={{
-            fontFamily: 'var(--serif)',
-            fontStyle: 'italic',
-            fontSize: 14,
+            fontFamily: 'var(--sans)',
+            fontSize: 13,
             fontWeight: 500,
+            letterSpacing: '-0.01em',
           }}>{block.repsMin}–{block.repsMax} reps · RPE {block.rpeMin}–{block.rpeMax}</div>
         </div>
       </div>
@@ -306,10 +306,10 @@ export default function ProgramView() {
                   )}
                   <div>
                     <div style={{
-                      fontFamily: 'var(--serif)',
-                      fontWeight: 500,
-                      fontSize: 19,
-                      letterSpacing: '-0.005em',
+                      fontFamily: 'var(--sans)',
+                      fontWeight: 600,
+                      fontSize: 17,
+                      letterSpacing: '-0.02em',
                     }}>{day.day_name}</div>
                     <div style={{
                       fontFamily: 'var(--mono)',
@@ -344,10 +344,10 @@ export default function ProgramView() {
                     }}>
                       <div>
                         <div style={{
-                          fontFamily: 'var(--serif)',
+                          fontFamily: 'var(--sans)',
                           fontWeight: 500,
                           fontSize: 15,
-                          letterSpacing: '-0.005em',
+                          letterSpacing: '-0.01em',
                           color: 'var(--ink)',
                         }}>{ex.exercise_name}</div>
                         <div style={{
