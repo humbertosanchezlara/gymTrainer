@@ -278,10 +278,11 @@ export function generateProgram(
   bmi: number = 22,
   sessionMinutes: number = 60,
   gender: string = 'male',
-  cycleNumber: number = 1
+  cycleNumber: number = 1,
+  currentWeek: number = 1
 ): GeneratedProgram {
   const split = getSplitTemplate(days);
-  const block = BLOCKS[0]; // Generate Day 1 details for Volume block (Week 1)
+  const block = getBlockForWeek(currentWeek);
   const bmiAdj = getBmiAdjustments(bmi, experience);
   const cycleAdj = getCycleAdjustments(cycleNumber);
   const maxExercises = maxExercisesForDuration(sessionMinutes);

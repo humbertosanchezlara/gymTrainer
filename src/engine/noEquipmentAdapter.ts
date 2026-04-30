@@ -5,7 +5,6 @@ import { EXERCISE_DB } from '../workout-engine/lib/exerciseDb';
 import { buildWeeklyPlan } from '../workout-engine/lib/routineEngine';
 import type {
   Exercise as EngineExercise,
-  MuscleGroup,
   UserProfile,
   WeeklyPlan,
   WorkoutDay,
@@ -18,7 +17,7 @@ import type { Exercise, MovementCategory, ProgramDayExercise } from '../types';
 
 export function mapEngineCategory(ex: EngineExercise): MovementCategory {
   const prim = ex.primaryMuscles;
-  const has = (m: MuscleGroup) => prim.includes(m);
+  const has = (m: string) => prim.includes(m as never);
 
   if (ex.category === 'legs') {
     if (has('calves')) return 'CALVES';
@@ -112,17 +111,14 @@ function slotToProgramExercise(
 
   const { sets, reps_min, reps_max, notesPrefix } = schemeToProgramFields(slot.scheme);
 
-  const restNote = slot.restSeconds > 0 ? `${slot.restSeconds}s rest` : '';
+  const restNote = slot.restSeconds > 0 ? `${slot.restSeconds}s descanso` : '';
   const pairedNote = slot.pairedWith ? 'superset' : '';
   const extraNotes = [notesPrefix, slot.notes, restNote, pairedNote]
     .filter(Boolean)
     .join(' · ');
 
   return {
-    exercise_id: dbEx?.id ?? (() => {
-      console.warn(`[noEquipmentAdapter] Ejercicio no encontrado en BD: "${engineEx.nameEs}". Asegúrate de ejecutar migration_bands.sql`);
-      return `MISSING:${engineEx.nameEs}`;
-    })(),
+    exercise_id: dbEx?.id || `MISSING:${engineEx.nameEs}`,
     exercise_name: dbEx?.name || engineEx.nameEs,
     category: dbEx?.category || mapEngineCategory(engineEx),
     role: inferRole(sectionLabel, indexInSection),
@@ -159,12 +155,7 @@ export function deriveEngineProfile(opts: {
   scheduleDays: number;
   sessionMinutes: number;
   goal: string;
-  hasBands?: boolean;
-  hasPullupBar?: boolean;
-  volumeLevel?: 'basic' | 'intermediate' | 'advanced';
 }): UserProfile {
-  const hasBands = opts.hasBands !== false;
-
   const level =
     opts.experience === 'beginner'
       ? 'beginner'
@@ -172,32 +163,28 @@ export function deriveEngineProfile(opts: {
       ? 'advanced'
       : 'intermediate';
 
-  let volumeTolerance: 'low' | 'medium' | 'high' | 'very_high';
-  if (opts.volumeLevel === 'basic') {
-    volumeTolerance = 'low';
-  } else if (opts.volumeLevel === 'intermediate') {
-    volumeTolerance = 'high';
-  } else if (opts.volumeLevel === 'advanced') {
-    volumeTolerance = 'very_high';
-  } else {
-    // Derive from session length and experience
-    volumeTolerance =
-      opts.sessionMinutes <= 30
-        ? 'low'
-        : opts.sessionMinutes <= 50
-        ? 'medium'
-        : opts.experience === 'advanced' || opts.goal === 'hypertrophy'
-        ? 'very_high'
-        : 'high';
-  }
+  // Volume tolerance: scale by session length and experience
+  const volumeTolerance =
+    opts.sessionMinutes <= 30
+      ? 'low'
+      : opts.sessionMinutes <= 50
+      ? 'medium'
+      : opts.experience === 'advanced' || opts.goal === 'hypertrophy'
+      ? 'very_high'
+      : 'high';
 
   return {
     level,
     volumeTolerance,
-    equipment: hasBands
-      ? ['band', 'bodyweight', 'band_anchor_high', 'band_anchor_low', 'band_anchor_door', 'chair']
-      : ['bodyweight', 'chair'],
-    restrictions: opts.hasPullupBar ? [] : ['no_pullup_bar'],
+    equipment: [
+      'band',
+      'bodyweight',
+      'band_anchor_high',
+      'band_anchor_low',
+      'band_anchor_door',
+      'chair',
+    ],
+    restrictions: ['no_pullup_bar'],
     daysPerWeek: Math.min(Math.max(opts.scheduleDays, 2), 5),
   };
 }
@@ -241,12 +228,8 @@ export function generateNoEquipmentProgram(
       ? 'Upper / Lower híbrido'
       : 'PPL + Upper + Full Body';
 
-  const hasBandEquip = profile.equipment.includes('band');
-
   return {
-    name: hasBandEquip
-      ? 'Programa sin equipo — bandas + peso corporal'
-      : 'Programa de peso corporal',
+    name: 'Programa sin equipo — bandas + peso corporal',
     split_type: splitType,
     total_days: plan.days.length,
     total_weeks: 12,
