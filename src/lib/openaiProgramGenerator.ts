@@ -119,12 +119,113 @@ interface LLMWeekPlan {
   days: Array<{ day_number: number; exercises: LLMExercise[] }>;
 }
 
+function roundToNearest2_5(value: number): number {
+  return Math.round(value / 2.5) * 2.5;
+}
+
+function computeExerciseWeight(
+  exercise: Exercise,
+  role: 'primary' | 'secondary' | 'accessory',
+  profile: AIGeneratorProfile,
+  workingWeights?: Map<string, number>
+): number {
+  const baseWeight = workingWeights?.get(exercise.id)
+    ?? estimateWeight(exercise.name, profile.bodyweight, profile.training_experience, profile.gender);
+
+  if (role === 'accessory') {
+    return roundToNearest2_5(baseWeight * 0.9);
+  }
+
+  return roundToNearest2_5(baseWeight);
+}
+
+function sanitizeGeneratedDays(params: {
+  days: GeneratedDay[];
+  exercises: Exercise[];
+  profile: AIGeneratorProfile;
+  weekNum: number;
+  workingWeights?: Map<string, number>;
+}): GeneratedDay[] {
+  const { days, exercises, profile, weekNum, workingWeights } = params;
+  const exerciseMap = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const exercisesByCategory = new Map<string, Exercise[]>();
+
+  for (const exercise of exercises) {
+    if (!isExerciseEnabled(exercise.status)) continue;
+    const list = exercisesByCategory.get(exercise.category) ?? [];
+    list.push(exercise);
+    exercisesByCategory.set(exercise.category, list);
+  }
+
+  const block = getBlockForWeek(weekNum);
+  const weekOffsetInBlock = Math.max(block.weeks.indexOf(weekNum), 0);
+  let remainingWeeklyAccessorySwaps = weekOffsetInBlock === 0 ? 0 : 2;
+
+  return days.map((day, dayIndex) => {
+    const usedIds = new Set<string>();
+
+    const normalizedExercises = day.exercises.map((generatedExercise, exerciseIndex) => {
+      const category = generatedExercise.category;
+      const categoryExercises = exercisesByCategory.get(category) ?? [];
+      const currentExercise = exerciseMap.get(generatedExercise.exercise_id);
+      const hasValidCategory = currentExercise?.category === category;
+      const isDuplicate = usedIds.has(generatedExercise.exercise_id);
+
+      let resolvedExercise =
+        hasValidCategory && !isDuplicate
+          ? currentExercise ?? null
+          : categoryExercises.find((candidate) => !usedIds.has(candidate.id)) ?? null;
+
+      if (
+        resolvedExercise &&
+        generatedExercise.role === 'accessory' &&
+        remainingWeeklyAccessorySwaps > 0 &&
+        weekOffsetInBlock > 0
+      ) {
+        const resolvedExerciseId = resolvedExercise.id;
+        const alternatives = categoryExercises.filter(
+          (candidate) => candidate.id !== resolvedExerciseId && !usedIds.has(candidate.id)
+        );
+
+        if (alternatives.length > 0) {
+          const pickIndex = (weekOffsetInBlock - 1 + dayIndex + exerciseIndex) % alternatives.length;
+          resolvedExercise = alternatives[pickIndex];
+          remainingWeeklyAccessorySwaps -= 1;
+        }
+      }
+
+      if (!resolvedExercise) {
+        if (currentExercise && !usedIds.has(currentExercise.id)) {
+          usedIds.add(currentExercise.id);
+        }
+        return generatedExercise;
+      }
+
+      usedIds.add(resolvedExercise.id);
+
+      return {
+        ...generatedExercise,
+        exercise_id: resolvedExercise.id,
+        exercise_name: resolvedExercise.name,
+        category: resolvedExercise.category,
+        weight: computeExerciseWeight(resolvedExercise, generatedExercise.role, profile, workingWeights),
+      };
+    });
+
+    return {
+      ...day,
+      exercises: normalizedExercises,
+    };
+  });
+}
+
 async function enhanceWithAI(
   baseDays: GeneratedDay[],
   exercises: Exercise[],
   profile: AIGeneratorProfile,
   weekNum: number,
-  previousSummary?: WeekSummary
+  previousSummary?: WeekSummary,
+  workingWeights?: Map<string, number>
 ): Promise<GeneratedDay[]> {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   if (!apiKey) throw new Error('VITE_OPENAI_API_KEY not configured');
@@ -222,7 +323,7 @@ REGLAS ESTRICTAS (en orden de prioridad):
     return words.length > 0 && words.every(w => limNorm.includes(w));
   };
 
-  return baseDays.map(baseDay => {
+  const aiMergedDays = baseDays.map(baseDay => {
     const llmDay = parsed.days.find(d => d.day_number === baseDay.day_number);
     if (!llmDay || !Array.isArray(llmDay.exercises)) return baseDay;
 
@@ -236,20 +337,22 @@ REGLAS ESTRICTAS (en orden de prioridad):
       const llmEx = validLLM[idx];
       if (!llmEx) return baseEx;
 
+      const selectedEx = exerciseMap.get(llmEx.exercise_id);
+      if (!selectedEx || selectedEx.category !== baseEx.category) {
+        return { ...baseEx, notes: llmEx.notes || baseEx.notes };
+      }
+
       // Primary/secondary: keep exercise unless it conflicts with user limitations
       if ((baseEx.role === 'primary' || baseEx.role === 'secondary') && !conflictsWithLimitations(baseEx.exercise_name)) {
         return { ...baseEx, notes: llmEx.notes || baseEx.notes };
       }
 
       // Accessory (or primary/secondary with limitation conflict): allow swap
-      const selectedEx = exerciseMap.get(llmEx.exercise_id);
-      if (!selectedEx || selectedEx.id === baseEx.exercise_id) {
+      if (selectedEx.id === baseEx.exercise_id) {
         return { ...baseEx, notes: llmEx.notes || baseEx.notes };
       }
 
-      const newWeight = Math.round(
-        estimateWeight(selectedEx.name, profile.bodyweight, profile.training_experience, profile.gender) / 2.5
-      ) * 2.5;
+      const newWeight = computeExerciseWeight(selectedEx, baseEx.role, profile, workingWeights);
 
       return {
         ...baseEx,
@@ -263,6 +366,8 @@ REGLAS ESTRICTAS (en orden de prioridad):
 
     return { ...baseDay, exercises: mergedExercises };
   });
+
+  return aiMergedDays;
 }
 
 // ─── Public: generate one week (with AI + local fallback) ─────
@@ -324,11 +429,19 @@ export async function generateWeekWithAI(params: {
 
   let finalDays: GeneratedDay[];
   try {
-    finalDays = await enhanceWithAI(baseProgram.days, exercises, profile, weekNum, previousSummary);
+    finalDays = await enhanceWithAI(baseProgram.days, exercises, profile, weekNum, previousSummary, workingWeights);
   } catch (err) {
     console.error('[AI program generator] Enhancement failed, using local engine:', err);
     finalDays = baseProgram.days;
   }
+
+  finalDays = sanitizeGeneratedDays({
+    days: finalDays,
+    exercises,
+    profile,
+    weekNum,
+    workingWeights,
+  });
 
   return {
     programName: baseProgram.name,
