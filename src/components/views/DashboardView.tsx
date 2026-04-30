@@ -14,14 +14,19 @@ import {
   type TravelDayContext,
 } from '../../lib/openaiTravelGenerator';
 import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
-import { Loader2, ArrowRight, MapPin, RefreshCw, Repeat2 } from 'lucide-react';
-import Modal from '../Modal';
+import { Loader2 } from 'lucide-react';
 import type { Tab } from '../MainShell';
 import { HeroSession } from '../forge/HeroSession';
 import { AdjustWithAI } from '../forge/AdjustWithAI';
 import { ContextCards } from '../forge/ContextCards';
 import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
 import { replaceExerciseInProgram } from '../../utils/programExerciseMutations';
+import { DashboardProgramCompleteBanner } from './dashboard/DashboardProgramCompleteBanner';
+import { DashboardReplaceExerciseCard } from './dashboard/DashboardReplaceExerciseCard';
+import { DashboardTravelModeCard } from './dashboard/DashboardTravelModeCard';
+import { DashboardProgramLinkCard } from './dashboard/DashboardProgramLinkCard';
+import { DashboardTravelSetupModal } from './dashboard/DashboardTravelSetupModal';
+import { DashboardReplaceExerciseModal } from './dashboard/DashboardReplaceExerciseModal';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -369,25 +374,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Program complete banner */}
-      {programComplete && (
-        <div style={{
-          border: '1px solid var(--accent)', borderRadius: 16, padding: '20px 24px',
-          background: 'color-mix(in oklab, var(--accent), transparent 94%)',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
-        }}>
-          <div>
-            <div style={{ color: 'var(--accent)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
-              ¡Programa completado!
-            </div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>
-              Completaste las <em style={{ color: 'var(--accent)' }}>{completedWeeks} semanas</em>. Hora de un nuevo ciclo.
-            </div>
-          </div>
-          <button onClick={() => onNavigate('library')} className="btn btn-ghost" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <RefreshCw size={14} /> Nuevo ciclo
-          </button>
-        </div>
-      )}
+      {programComplete && <DashboardProgramCompleteBanner completedWeeks={completedWeeks} onNewCycle={() => onNavigate('library')} />}
 
       {/* Hero: today's session */}
       <HeroSession
@@ -400,24 +387,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         onRevert={originalExercises ? handleRevert : undefined}
       />
 
-      {todayExercises.length > 0 && !programComplete && (
-        <button
-          type="button"
-          onClick={openReplaceModal}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            width: '100%', padding: '14px 18px',
-            background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 18,
-            cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)',
-          }}
-        >
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Cambiar ejercicio</span>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Actualiza tu programa activo con otro ejercicio compatible.</span>
-          </span>
-          <Repeat2 size={16} />
-        </button>
-      )}
+      {todayExercises.length > 0 && !programComplete && <DashboardReplaceExerciseCard onClick={openReplaceModal} />}
 
       {/* AI adjust */}
       <AdjustWithAI
@@ -440,35 +410,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       )}
 
       {/* Travel mode */}
-      <button
-        type="button"
-        onClick={() => setShowTravelSetup(true)}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 12, width: '100%', padding: '16px 20px', textAlign: 'left',
-          background: 'color-mix(in oklab, var(--ink), transparent 97%)',
-          border: '1px solid var(--rule)',
-          borderRadius: 20, cursor: 'pointer',
-          fontFamily: 'var(--sans)', transition: 'border-color .15s, background .15s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--muted)'; e.currentTarget.style.background = 'color-mix(in oklab, var(--ink), transparent 94%)'; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--rule)'; e.currentTarget.style.background = 'color-mix(in oklab, var(--ink), transparent 97%)'; }}
-      >
-        <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{
-            width: 36, height: 36, borderRadius: 12,
-            background: 'var(--ink)', color: 'var(--paper)',
-            display: 'grid', placeItems: 'center', flexShrink: 0,
-          }}>
-            <MapPin size={16} />
-          </span>
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>Sesión fuera del gym</span>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Entrena en casa o viajando</span>
-          </span>
-        </span>
-        <ArrowRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      </button>
+      <DashboardTravelModeCard onClick={() => setShowTravelSetup(true)} />
 
       {/* Context cards */}
       <ContextCards
@@ -482,100 +424,28 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       />
 
       {/* Ver programa completo */}
-      <button
-        type="button"
-        onClick={() => onNavigate('program')}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          width: '100%', padding: '16px 20px',
-          background: 'transparent',
-          border: '1px dashed var(--rule)',
-          borderRadius: 20, cursor: 'pointer',
-          fontFamily: 'var(--sans)', fontWeight: 600, fontSize: 14,
-          color: 'var(--ink)', transition: 'border-color .15s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--muted)'; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--rule)'; }}
-      >
-        <span>Ver programa completo</span>
-        <ArrowRight size={16} />
-      </button>
+      <DashboardProgramLinkCard onClick={() => onNavigate('program')} />
 
-      {/* Travel setup modal */}
-      <Modal
+      <DashboardTravelSetupModal
         isOpen={showTravelSetup}
         onClose={() => setShowTravelSetup(false)}
-        title="Sesión fuera del gym"
-        description="Configura tu rutina según lo que tienes disponible."
-        size="md"
-        actions={
-          <>
-            <button onClick={() => setShowTravelSetup(false)} className="btn btn-ghost">Cancelar</button>
-            <button
-              onClick={() => handleTravelModeClick(true)}
-              disabled={adjusting}
-              className="btn btn-ghost"
-              title="Descarta el bloque guardado y genera uno nuevo con IA"
-            >
-              Regenerar
-            </button>
-            <button onClick={() => handleTravelModeClick(false)} disabled={adjusting} className="btn btn-ink" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {adjusting ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : null}
-              {adjusting && travelGenerating ? 'Generando con IA…' : 'Siguiente sesión'}
-            </button>
-          </>
-        }
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <div>
-            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Días por semana fuera</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {[1, 2, 3, 4, 5].map(n => (
-                <button key={n} onClick={() => setTravelDays(n)} className={`btn ${travelDays === n ? 'btn-ink' : 'btn-ghost'}`}>{n} {n === 1 ? 'día' : 'días'}</button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Equipo disponible</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                <input type="checkbox" checked={travelHasBands} onChange={e => setTravelHasBands(e.target.checked)} />
-                <span className="body">Bandas elásticas</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                <input type="checkbox" checked={travelHasPullupBar} onChange={e => setTravelHasPullupBar(e.target.checked)} />
-                <span className="body">Barra de dominadas / calistenia</span>
-              </label>
-            </div>
-          </div>
-          <div>
-            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Volumen</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {(['basic', 'intermediate', 'advanced'] as const).map(v => (
-                <button key={v} onClick={() => setTravelVolume(v)} className={`btn btn-sq ${travelVolume === v ? 'btn-ink' : 'btn-ghost'}`} style={{ justifyContent: 'flex-start', borderRadius: 8 }}>
-                  {{ basic: 'Básico (5-10 reps)', intermediate: 'Intermedio (10-20 reps)', advanced: 'Avanzado (20+ reps)' }[v]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 8 }}>Ejercicios que prefieres evitar</div>
-            <div className="body-s" style={{ color: 'var(--muted)', marginBottom: 10, lineHeight: 1.5 }}>
-              Separa por comas. Ej: burpees, sentadillas con salto, jumping jacks
-            </div>
-            <input
-              type="text"
-              value={travelDisliked}
-              onChange={e => setTravelDisliked(e.target.value)}
-              placeholder="burpees, jumping jacks..."
-              className="forge-field"
-              style={{ width: '100%', boxSizing: 'border-box' }}
-            />
-          </div>
-        </div>
-      </Modal>
+        travelDays={travelDays}
+        onTravelDaysChange={setTravelDays}
+        travelHasBands={travelHasBands}
+        onTravelHasBandsChange={setTravelHasBands}
+        travelHasPullupBar={travelHasPullupBar}
+        onTravelHasPullupBarChange={setTravelHasPullupBar}
+        travelVolume={travelVolume}
+        onTravelVolumeChange={setTravelVolume}
+        travelDisliked={travelDisliked}
+        onTravelDislikedChange={setTravelDisliked}
+        adjusting={adjusting}
+        travelGenerating={travelGenerating}
+        onRegenerate={() => handleTravelModeClick(true)}
+        onNextSession={() => handleTravelModeClick(false)}
+      />
 
-      <Modal
+      <DashboardReplaceExerciseModal
         isOpen={showReplaceModal}
         onClose={() => {
           if (replaceLoading) return;
@@ -584,89 +454,19 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           setReplacementCandidates([]);
           setReplaceError(null);
         }}
-        title={selectedExercise ? `Reemplazar ${selectedExercise.exercise_name}` : 'Cambiar ejercicio'}
-        description={selectedExercise ? 'Elige un ejercicio activo de la misma categoría.' : 'Primero selecciona qué ejercicio quieres cambiar.'}
-        size="md"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {!selectedExercise && todayExercises.map((exercise) => (
-            <button
-              key={exercise.exercise_id}
-              type="button"
-              onClick={() => selectExerciseForReplacement(exercise)}
-              style={{
-                background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 12,
-                padding: '14px 16px', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)',
-              }}
-            >
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{exercise.exercise_name}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                {exercise.category} · {exercise.sets}×{exercise.reps_min}{exercise.reps_max !== exercise.reps_min ? `–${exercise.reps_max}` : ''}
-              </div>
-            </button>
-          ))}
-
-          {selectedExercise && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedExercise(null);
-                  setReplacementCandidates([]);
-                  setReplaceError(null);
-                }}
-                className="btn btn-ghost"
-                style={{ alignSelf: 'flex-start' }}
-              >
-                Elegir otro ejercicio
-              </button>
-
-              {replaceLoading && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 13 }}>
-                  <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
-                  Cargando reemplazos…
-                </div>
-              )}
-
-              {!replaceLoading && replacementCandidates.map((candidate) => (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  onClick={() => applyPersistentReplacement(candidate.id)}
-                  style={{
-                    background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 12,
-                    padding: '14px 16px', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)',
-                  }}
-                >
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{candidate.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                    Se activará en tu biblioteca y reemplazará a {selectedExercise.exercise_name}.
-                  </div>
-                </button>
-              ))}
-
-              {!replaceLoading && replacementCandidates.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  No hay reemplazos activos disponibles para esta categoría.
-                </div>
-              )}
-            </>
-          )}
-
-          {replaceError && (
-            <div style={{
-              border: '1px solid color-mix(in oklab, var(--accent), transparent 70%)',
-              background: 'color-mix(in oklab, var(--accent), transparent 94%)',
-              color: 'var(--ink)',
-              borderRadius: 12,
-              padding: '12px 14px',
-              fontSize: 13,
-            }}>
-              {replaceError}
-            </div>
-          )}
-        </div>
-      </Modal>
+        todayExercises={todayExercises}
+        selectedExercise={selectedExercise}
+        replacementCandidates={replacementCandidates}
+        replaceLoading={replaceLoading}
+        replaceError={replaceError}
+        onSelectExercise={selectExerciseForReplacement}
+        onBack={() => {
+          setSelectedExercise(null);
+          setReplacementCandidates([]);
+          setReplaceError(null);
+        }}
+        onApplyReplacement={applyPersistentReplacement}
+      />
     </div>
   );
 }

@@ -6,9 +6,18 @@ import type { ExerciseSearchResult } from '../lib/claudeExercise';
 import type { MovementCategory, ProgramDayExercise } from '../types';
 import { CATEGORY_LABELS } from '../types';
 import Modal from './Modal';
-import { Loader2, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../utils/programState';
 import { replaceExerciseInProgram } from '../utils/programExerciseMutations';
+import {
+  AddExerciseConfirmStep,
+  AddExerciseDoneStep,
+  AddExerciseLoadingStep,
+  AddExerciseProgramOptionsStep,
+  AddExerciseProgramPromptStep,
+  AddExerciseReplaceStep,
+  AddExerciseSearchStep,
+} from './addExercise/AddExerciseSteps';
 
 type Step = 'SEARCH' | 'SEARCHING' | 'CONFIRM' | 'SAVING' | 'PROGRAM_PROMPT' | 'ADD_OR_REPLACE' | 'SELECT_REPLACE' | 'DONE';
 
@@ -254,195 +263,32 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
   const renderContent = () => {
     switch (step) {
       case 'SEARCH':
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <label className="caption" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Nombre del ejercicio o máquina</label>
-              <input
-                className="body"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                placeholder="ej. Leg Press, Cable Fly, Hip Abductor..."
-                autoFocus
-                style={{ width: '100%', padding: '12px 14px', borderRadius: 8, border: '1px solid var(--rule)', background: 'var(--paper-2)', color: 'var(--ink)', fontFamily: 'var(--sans)', fontSize: 15, outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-            {error && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(186,26,26,0.08)', border: '1px solid rgba(186,26,26,0.2)', borderRadius: 8, padding: '10px 14px' }}>
-                <AlertTriangle size={16} style={{ color: '#ba1a1a', flexShrink: 0, marginTop: 1 }} />
-                <span className="caption" style={{ color: '#ba1a1a' }}>{error}</span>
-              </div>
-            )}
-            <p className="caption" style={{ color: 'var(--muted)', margin: 0 }}>
-              Claude buscará información del ejercicio y sugerirá la categoría correcta automáticamente.
-            </p>
-          </div>
-        );
+        return <AddExerciseSearchStep query={query} onQueryChange={setQuery} onSubmit={handleSearch} error={error} />;
 
       case 'SEARCHING':
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '24px 0' }}>
-            <Loader2 size={28} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
-            <span className="body" style={{ color: 'var(--muted)' }}>Consultando información del ejercicio...</span>
-          </div>
-        );
+        return <AddExerciseLoadingStep message="Consultando información del ejercicio..." />;
 
       case 'CONFIRM':
         if (!searchResult) return null;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Exercise info card */}
-            <div style={{ background: 'var(--paper-2)', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <span className="d-s" style={{ fontWeight: 700, lineHeight: 1.2 }}>{searchResult.standardized_name}</span>
-                <span className="mono caption" style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                  {CATEGORY_LABELS[searchResult.category]}
-                </span>
-              </div>
-              <p className="caption" style={{ color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>{searchResult.instructions}</p>
-            </div>
-
-            {/* Duplicate warning */}
-            {duplicates.length > 0 && (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'rgba(255,160,0,0.08)', border: '1px solid rgba(255,160,0,0.3)', borderRadius: 8, padding: '12px 14px' }}>
-                <AlertTriangle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: 1 }} />
-                <div>
-                  <div className="caption" style={{ fontWeight: 600, color: '#92400e', marginBottom: 4 }}>Posible duplicado encontrado</div>
-                  {duplicates.map((d, i) => (
-                    <div key={i} className="caption" style={{ color: '#92400e' }}>
-                      "{d.name}" ya existe en tu biblioteca bajo{' '}
-                      <strong>{CATEGORY_LABELS[d.category]}</strong>
-                      {d.source === 'community' ? ' (biblioteca comunitaria)' : ''}.
-                    </div>
-                  ))}
-                  <div className="caption" style={{ color: '#92400e', marginTop: 6 }}>Puedes continuar si es un ejercicio distinto.</div>
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className="caption" style={{ color: '#ba1a1a' }}>{error}</div>
-            )}
-          </div>
-        );
+        return <AddExerciseConfirmStep searchResult={searchResult} duplicates={duplicates} error={error} />;
 
       case 'SAVING':
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '24px 0' }}>
-            <Loader2 size={28} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
-            <span className="body" style={{ color: 'var(--muted)' }}>Guardando ejercicio...</span>
-          </div>
-        );
+        return <AddExerciseLoadingStep message="Guardando ejercicio..." />;
 
       case 'PROGRAM_PROMPT':
         if (!savedExercise) return null;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'rgba(0,120,80,0.08)', border: '1px solid rgba(0,120,80,0.2)', borderRadius: 8, padding: '12px 14px' }}>
-              <CheckCircle2 size={16} style={{ color: '#00834e', flexShrink: 0, marginTop: 1 }} />
-              <div>
-                <div className="caption" style={{ fontWeight: 600, color: '#00834e' }}>Ejercicio guardado</div>
-                <div className="caption" style={{ color: '#00834e', marginTop: 2 }}>
-                  {savedExercise.name} se añadió a{' '}
-                  <strong>{CATEGORY_LABELS[savedExercise.category]}</strong> en tu biblioteca.
-                </div>
-              </div>
-            </div>
-            {programDay && (
-              <div style={{ background: 'var(--paper-2)', borderRadius: 10, padding: '14px 16px' }}>
-                <div className="body" style={{ fontWeight: 600 }}>¿Incorporarlo a tu programa ahora?</div>
-                <div className="caption" style={{ color: 'var(--muted)', marginTop: 4 }}>
-                  Tu siguiente sesión es: <strong>{programDay.dayName}</strong>.
-                  {!categoryMatchesDay && (
-                    <span> Este ejercicio ({CATEGORY_LABELS[savedExercise.category]}) no corresponde a esa sesión.</span>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        );
+        return <AddExerciseProgramPromptStep savedExercise={savedExercise} dayName={programDay?.dayName ?? null} categoryMatchesDay={categoryMatchesDay} />;
 
       case 'ADD_OR_REPLACE':
         if (!programDay || !searchResult) return null;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="caption" style={{ color: 'var(--muted)' }}>
-              Sesión: <strong style={{ color: 'var(--ink)' }}>{programDay.dayName}</strong>
-            </div>
-            <button
-              onClick={handleAddExercise}
-              className="btn btn-ink btn-sq"
-              style={{ justifyContent: 'flex-start', borderRadius: 8, padding: '14px 18px', textAlign: 'left', display: 'block' }}
-            >
-              <div style={{ fontWeight: 700 }}>Añadir al final</div>
-              <div style={{ fontSize: 13, opacity: .7, marginTop: 4, fontWeight: 400 }}>Se agrega como ejercicio extra a la sesión de hoy en adelante.</div>
-            </button>
-            <button
-              onClick={() => setStep('SELECT_REPLACE')}
-              style={{ background: 'transparent', border: '1px solid var(--rule)', color: 'var(--ink)', padding: '14px 18px', borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--sans)', textAlign: 'left' }}
-            >
-              <div style={{ fontWeight: 700 }}>Reemplazar un ejercicio</div>
-              <div style={{ fontSize: 13, opacity: .7, marginTop: 4, fontWeight: 400 }}>Sustituye a otro ejercicio de hoy en adelante.</div>
-            </button>
-          </div>
-        );
+        return <AddExerciseProgramOptionsStep dayName={programDay.dayName} onAdd={handleAddExercise} onReplace={() => setStep('SELECT_REPLACE')} />;
 
       case 'SELECT_REPLACE':
-        if (!programDay) return null;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="caption" style={{ color: 'var(--muted)', marginBottom: 4 }}>
-              Selecciona el ejercicio a reemplazar:
-            </div>
-            {programDay.exercises.filter(ex => ex.category === searchResult?.category).map(ex => {
-              const isSuggested = ex.exercise_id === suggestedReplaceId;
-              return (
-                <button
-                  key={ex.exercise_id}
-                  onClick={() => handleReplaceExercise(ex.exercise_id)}
-                  style={{
-                    background: isSuggested ? 'var(--paper-2)' : 'transparent',
-                    border: isSuggested ? '1.5px solid var(--ink)' : '1px solid var(--rule)',
-                    color: 'var(--ink)',
-                    padding: '12px 16px',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    fontFamily: 'var(--sans)',
-                    textAlign: 'left',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: isSuggested ? 700 : 500, fontSize: 14 }}>{ex.exercise_name}</div>
-                    <div style={{ fontSize: 12, opacity: .6, marginTop: 2 }}>{CATEGORY_LABELS[ex.category as MovementCategory] ?? ex.category} — {ex.sets}×{ex.reps_min}</div>
-                  </div>
-                  {isSuggested && (
-                    <span style={{ background: 'var(--ink)', color: 'var(--paper)', fontSize: 10, fontFamily: 'var(--mono)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                      SUGERIDO
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-            {programDay.exercises.filter(ex => ex.category === searchResult?.category).length === 0 && (
-              <div className="caption" style={{ color: 'var(--muted)' }}>
-                No hay ejercicios compatibles de esa categoría para reemplazar en esta sesión.
-              </div>
-            )}
-          </div>
-        );
+        if (!programDay || !searchResult) return null;
+        return <AddExerciseReplaceStep exercises={programDay.exercises} category={searchResult.category} suggestedReplaceId={suggestedReplaceId} onSelect={handleReplaceExercise} />;
 
       case 'DONE':
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center', textAlign: 'center', padding: '8px 0' }}>
-            <CheckCircle2 size={36} style={{ color: '#00834e' }} />
-            <p className="body" style={{ color: 'var(--muted)', margin: 0, lineHeight: 1.6 }}>{doneMessage}</p>
-          </div>
-        );
+        return <AddExerciseDoneStep doneMessage={doneMessage} />;
     }
   };
 
