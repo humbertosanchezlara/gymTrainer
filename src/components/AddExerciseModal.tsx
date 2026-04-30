@@ -7,6 +7,8 @@ import type { MovementCategory, ProgramDayExercise } from '../types';
 import { CATEGORY_LABELS } from '../types';
 import Modal from './Modal';
 import { Loader2, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../utils/programState';
+import { replaceExerciseInProgram } from '../utils/programExerciseMutations';
 
 type Step = 'SEARCH' | 'SEARCHING' | 'CONFIRM' | 'SAVING' | 'PROGRAM_PROMPT' | 'ADD_OR_REPLACE' | 'SELECT_REPLACE' | 'DONE';
 
@@ -18,6 +20,7 @@ interface DuplicateInfo {
 
 interface ProgramDayData {
   programId: string;
+  currentWeek: number;
   dayNum: number;
   dayName: string;
   exercises: ProgramDayExercise[];
@@ -39,6 +42,10 @@ const STEP_TITLES: Record<Step, string> = {
   SELECT_REPLACE: '¿Qué ejercicio reemplazas?',
   DONE: '¡Listo!',
 };
+
+function sessionDraftKey(userId: string) {
+  return `session_draft_${userId}`;
+}
 
 export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: Props) {
   const { user } = useAuth();
@@ -146,7 +153,7 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
 
       const { data: program } = await supabase
         .from('programs')
-        .select('id, total_days')
+        .select('id, total_days, total_weeks, created_at')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -154,21 +161,17 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
 
       if (!program) { setDoneMessage(`Ejercicio guardado en la categoría "${CATEGORY_LABELS[searchResult.category]}".`); setStep('DONE'); return; }
 
-      const { count: sessCount } = await supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', user.id);
-      const dayNum = ((sessCount ?? 0) % program.total_days) + 1;
+      const progress = await fetchProgramProgressState(user.id, program);
+      const dayNum = progress.currentDay;
+      const currentWeek = progress.currentWeek;
 
-      const { data: dayData } = await supabase
-        .from('program_days')
-        .select('day_name, exercises')
-        .eq('program_id', program.id)
-        .eq('day_number', dayNum)
-        .maybeSingle();
+      const dayResult = await fetchProgramDayForWeekOrFallback(program.id, currentWeek, dayNum);
 
-      if (!dayData) { setDoneMessage(`Ejercicio guardado en la categoría "${CATEGORY_LABELS[searchResult.category]}".`); setStep('DONE'); return; }
+      if (!dayResult.day) { setDoneMessage(`Ejercicio guardado en la categoría "${CATEGORY_LABELS[searchResult.category]}".`); setStep('DONE'); return; }
 
-      const todayExercises = (dayData.exercises ?? []) as ProgramDayExercise[];
+      const todayExercises = dayResult.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise));
       const matches = todayExercises.some(ex => ex.category === searchResult.category);
-      setProgramDay({ programId: program.id, dayNum, dayName: dayData.day_name, exercises: todayExercises });
+      setProgramDay({ programId: program.id, currentWeek, dayNum, dayName: dayResult.day.day_name, exercises: todayExercises });
       setCategoryMatchesDay(matches);
       setStep('PROGRAM_PROMPT');
     } catch {
@@ -213,8 +216,14 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
       notes: 'Peso de calibración — ajusta según tus sensaciones',
     };
     const updated = [...programDay.exercises, newEx];
-    const { error: updateErr } = await supabase.from('program_days').update({ exercises: updated }).eq('program_id', programDay.programId).eq('day_number', programDay.dayNum);
+    const { error: updateErr } = await supabase
+      .from('program_days')
+      .update({ exercises: updated })
+      .eq('program_id', programDay.programId)
+      .eq('day_number', programDay.dayNum)
+      .gte('week_num', programDay.currentWeek);
     if (updateErr) { setError('No se pudo añadir el ejercicio al programa. Intenta de nuevo.'); return; }
+    localStorage.removeItem(sessionDraftKey(user!.id));
     setDoneMessage(`¡${savedExercise.name} añadido a ${programDay.dayName}! Aparecerá en tu próxima sesión con un peso de calibración de ${weight} kg.`);
     setStep('DONE');
   };
@@ -224,25 +233,21 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
     if (!programDay || !savedExercise || !searchResult) return;
     const bw = bodyweight || 75;
     const weight = Math.round(bw * searchResult.bw_multiplier / 2.5) * 2.5;
-    const newEx: ProgramDayExercise = {
-      exercise_id: savedExercise.id,
-      exercise_name: savedExercise.name,
-      category: savedExercise.category,
-      role: 'secondary',
-      sets: 3,
-      reps_min: 10,
-      reps_max: 12,
-      rpe: 7,
-      weight,
-      is_calibration: true,
-      notes: 'Peso de calibración — ajusta según tus sensaciones',
-    };
     const replaced = programDay.exercises.find(ex => ex.exercise_id === replaceId);
-    const updated = programDay.exercises.map(ex => ex.exercise_id === replaceId ? newEx : ex);
-    const { error: updateErr } = await supabase.from('program_days').update({ exercises: updated }).eq('program_id', programDay.programId).eq('day_number', programDay.dayNum);
-    if (updateErr) { setError('No se pudo actualizar el programa. Intenta de nuevo.'); return; }
-    setDoneMessage(`¡${savedExercise.name} reemplazó a "${replaced?.exercise_name ?? replaceId}" en ${programDay.dayName}! Aparecerá en tu próxima sesión con un peso de calibración de ${weight} kg.`);
-    setStep('DONE');
+    try {
+      await replaceExerciseInProgram({
+        userId: user!.id,
+        programId: programDay.programId,
+        currentWeek: programDay.currentWeek,
+        fromExerciseId: replaceId,
+        toExerciseId: savedExercise.id,
+      });
+      localStorage.removeItem(sessionDraftKey(user!.id));
+      setDoneMessage(`¡${savedExercise.name} reemplazó a "${replaced?.exercise_name ?? replaceId}" desde ${programDay.dayName}! ${weight > 0 ? `Su peso inicial sugerido es ${weight} kg.` : ''}`);
+      setStep('DONE');
+    } catch {
+      setError('No se pudo actualizar el programa. Intenta de nuevo.');
+    }
   };
 
   // ── Render helpers ────────────────────────────────────────
@@ -390,7 +395,7 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
             <div className="caption" style={{ color: 'var(--muted)', marginBottom: 4 }}>
               Selecciona el ejercicio a reemplazar:
             </div>
-            {programDay.exercises.map(ex => {
+            {programDay.exercises.filter(ex => ex.category === searchResult?.category).map(ex => {
               const isSuggested = ex.exercise_id === suggestedReplaceId;
               return (
                 <button
@@ -423,6 +428,11 @@ export default function AddExerciseModal({ isOpen, onClose, onExerciseAdded }: P
                 </button>
               );
             })}
+            {programDay.exercises.filter(ex => ex.category === searchResult?.category).length === 0 && (
+              <div className="caption" style={{ color: 'var(--muted)' }}>
+                No hay ejercicios compatibles de esa categoría para reemplazar en esta sesión.
+              </div>
+            )}
           </div>
         );
 

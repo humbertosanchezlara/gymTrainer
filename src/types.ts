@@ -1,6 +1,6 @@
 // TypeScript types for the entire app, mapping to Supabase schema
 
-export type ExerciseStatus = 'YES' | 'SUB' | 'NO';
+export type ExerciseStatus = 'YES' | 'NO';
 
 export type MovementCategory =
   | 'QUAD_DOMINANT'
