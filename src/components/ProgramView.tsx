@@ -59,7 +59,7 @@ export default function ProgramView() {
           const result = await fetchProgramWeekDaysOrFallback(program.id, selectedWeek);
           if (cancelled) return;
           setDays(result.days);
-          setGeneratedWeek(!result.isFallback || result.sourceWeek === selectedWeek);
+          setGeneratedWeek(result.days.length > 0);
           setSourceWeek(result.sourceWeek);
         } else {
           const explicitDays = await fetchProgramWeekDays(program.id, selectedWeek);
