@@ -5,80 +5,21 @@ import { supabase } from '../../lib/supabase';
 import { useIsMobile } from '../../hooks/useBreakpoint';
 import type { Exercise } from '../../types';
 import ExerciseDetailModal from '../ExerciseDetailModal';
-import { getCatalogEntry } from '../../data/exerciseCatalog';
 import {
-  Plus, Check, Save, Trash2, Clock, Eye, X, AlertTriangle, Loader2, ArrowLeft,
+  Loader2,
 } from 'lucide-react';
 import { generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { Tab } from '../MainShell';
 import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
-
-// ─── Weight unit helpers ───────────────────────────────────
-const KG_TO_LBS = 2.20462;
-function kgToLbs(kg: number): number { return Math.round(kg * KG_TO_LBS); }
-function lbsToKg(lbs: number): number { return Math.round((lbs / KG_TO_LBS) * 10) / 10; }
-
-interface WeightCellProps {
-  kg: number;
-  isMobile: boolean;
-  isBW: boolean;
-  onChange: (kg: number) => void;
-  onAddWeight: () => void;
-}
-
-function WeightCell({ kg, isMobile, isBW, onChange, onAddWeight }: WeightCellProps) {
-  const [lbsVal, setLbsVal] = useState(() => kgToLbs(kg));
-  const prevKgRef = useRef(kg);
-
-  useEffect(() => {
-    if (prevKgRef.current !== kg) {
-      prevKgRef.current = kg;
-      setLbsVal(kgToLbs(kg));
-    }
-  }, [kg]);
-
-  const baseStyle: React.CSSProperties = {
-    width: '100%', border: 'none', background: 'transparent',
-    textAlign: 'center', fontFamily: 'var(--mono)',
-    fontSize: isMobile ? 17 : 20, fontWeight: 600, outline: 'none', lineHeight: 1.2,
-  };
-  const unitLabel: React.CSSProperties = { fontSize: 8, color: 'var(--muted)', fontFamily: 'var(--sans)', flexShrink: 0 };
-
-  if (isBW) {
-    return (
-      <>
-        <span style={{ ...baseStyle, color: 'var(--muted)', display: 'block' }}>BW</span>
-        <button onClick={onAddWeight} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--sans)', fontSize: 9, color: 'var(--muted)', padding: 0, textDecoration: 'underline' }}>+ peso</button>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, width: '100%', justifyContent: 'center' }}>
-        <input
-          type="number" className="session-num-input"
-          value={kg} onChange={e => onChange(+e.target.value)}
-          inputMode="decimal" step={2.5} min={0}
-          style={{ ...baseStyle, color: 'var(--ink)' }}
-        />
-        <span style={unitLabel}>kg</span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, width: '100%', justifyContent: 'center' }}>
-        <input
-          type="number" className="session-num-input"
-          value={lbsVal}
-          onChange={e => setLbsVal(+e.target.value)}
-          onBlur={e => onChange(lbsToKg(+e.target.value))}
-          inputMode="decimal" step={5} min={0}
-          style={{ ...baseStyle, color: 'var(--muted)' }}
-        />
-        <span style={unitLabel}>lb</span>
-      </div>
-    </>
-  );
-}
+import { SessionTopBar } from './session/SessionTopBar';
+import { SessionHeaderCard } from './session/SessionHeaderCard';
+import { SessionTravelBanner } from './session/SessionTravelBanner';
+import { SessionBlockProgress } from './session/SessionBlockProgress';
+import { SessionAlertBanner } from './session/SessionAlertBanner';
+import { SessionRpeGuide } from './session/SessionRpeGuide';
+import { SessionExerciseCard } from './session/SessionExerciseCard';
+import { SessionSavePanel } from './session/SessionSavePanel';
 
 // ─── Types ────────────────────────────────────────────────
 export interface SessionLogEntry {
@@ -112,12 +53,6 @@ interface SessionDraft {
 
 function sessionDraftKey(userId: string) {
   return `session_draft_${userId}`;
-}
-
-function getRestLabel(rpe: number): string {
-  if (rpe >= 8) return '3–5 min';
-  if (rpe >= 6) return '2–3 min';
-  return '60–90 seg';
 }
 
 /**
@@ -474,136 +409,35 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
       `}</style>
 
       {/* ── Top bar ─────────────────────────────────────────── */}
-      <header className="forge-topnav">
-        <div style={{
-          position: 'relative',
-          maxWidth: 720, margin: '0 auto',
-          padding: isMobile ? '0 16px' : '0 32px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56,
-        }}>
-          <button
-            onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
-            className="btn btn-ghost"
-            style={{ gap: 6, padding: '8px 12px', flexShrink: 0 }}
-          >
-            <ArrowLeft size={14} /> Hoy
-          </button>
-
-          {travelDraft && (
-            <div className="uc" style={{
-              position: 'absolute', left: '50%', transform: 'translateX(-50%)',
-              color: 'var(--accent)', fontSize: 10, whiteSpace: 'nowrap',
-            }}>
-              🏃 Fuera del Gym
-            </div>
-          )}
-
-          <div style={{ width: 80, flexShrink: 0 }} />
-        </div>
-      </header>
+      <SessionTopBar travelDraft={Boolean(travelDraft)} onBack={() => { onClearTravel(); onNavigate('dashboard'); }} />
 
       {/* ── Content ─────────────────────────────────────────── */}
       <main style={{ maxWidth: 720, margin: '0 auto', padding: isMobile ? '24px 16px' : '32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Header */}
-        <div style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 16 }}>
-          <input
-            type="text"
-            value={sessionName}
-            onChange={e => setSessionName(e.target.value)}
-            placeholder="Nombre de la sesión"
-            style={{
-              background: 'transparent', border: 'none', outline: 'none',
-              fontFamily: 'var(--sans)', fontWeight: 700, letterSpacing: '-0.02em',
-              fontSize: isMobile ? 26 : 32, color: 'var(--ink)', width: '100%',
-              padding: 0,
-            }}
-          />
-          <div className="mono caption" style={{ marginTop: 8, color: 'var(--muted)' }}>
-            {travelContext
-              ? `Fuera del gym · ~${travelContext.estimated_minutes} min · Dificultad ${travelContext.session_difficulty}/10`
-              : hasProgram && weekNum > 0
-              ? `Día ${dayNum} · Semana ${weekNum} · ${blockName}`
-              : hasProgram
-              ? blockName
-              : 'Registra tu trabajo. Los pesos se actualizan automáticamente.'}
-          </div>
-        </div>
+        <SessionHeaderCard
+          sessionName={sessionName}
+          onSessionNameChange={setSessionName}
+          isMobile={isMobile}
+          travelContext={travelContext}
+          hasProgram={hasProgram}
+          weekNum={weekNum}
+          dayNum={dayNum}
+          blockName={blockName}
+        />
 
         {/* Return-to-gym banner */}
-        {travelDraft && (
-          <div style={{
-            border: '1px solid var(--rule)', borderRadius: 12,
-            padding: '20px 24px',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16,
-            background: 'color-mix(in oklab, var(--ink), transparent 96%)',
-          }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>¿Puedes ir al gym hoy?</div>
-              <div className="caption" style={{ color: 'var(--muted)' }}>Sal sin guardar para retomar tu programa normal.</div>
-            </div>
-            <button
-              onClick={() => { onClearTravel(); onNavigate('dashboard'); }}
-              className="btn btn-ink"
-              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-            >
-              Ir al gym →
-            </button>
-          </div>
-        )}
+        {travelDraft && <SessionTravelBanner onReturnToGym={() => { onClearTravel(); onNavigate('dashboard'); }} />}
 
         {/* Periodization bar */}
-        {hasProgram && blockNum > 0 && (
-          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 20px' }}>
-            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 12 }}>Bloque actual</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-              {BLOCKS.map(b => {
-                const isActive = blockNum === b.num;
-                const isPast = blockNum > b.num;
-                return (
-                  <div key={b.num} style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
-                    <div style={{
-                      height: 3, width: '100%', borderRadius: 99,
-                      background: isActive ? 'var(--accent)' : isPast ? 'var(--ink)' : 'var(--rule)',
-                      transition: 'background .2s',
-                    }} />
-                    <span className="mono caption" style={{
-                      fontSize: 9,
-                      color: isActive ? 'var(--accent)' : isPast ? 'var(--ink)' : 'var(--muted)',
-                      fontWeight: isActive ? 700 : 400,
-                    }}>
-                      {b.name.slice(0, isActive ? 20 : 3).toUpperCase()}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            {blockDesc && (
-              <div className="caption" style={{ marginTop: 10, color: 'var(--muted)', textAlign: 'center' }}>
-                {blockDesc}
-              </div>
-            )}
-          </div>
-        )}
+        {hasProgram && blockNum > 0 && <SessionBlockProgress blocks={BLOCKS} blockNum={blockNum} blockDesc={blockDesc} />}
 
         {/* Deload / readaptation banner */}
         {deloadApplied && (
-          <div style={{
-            borderLeft: '3px solid var(--accent)',
-            borderRadius: '0 8px 8px 0',
-            background: 'color-mix(in oklab, var(--accent), transparent 92%)',
-            padding: '12px 16px',
-            display: 'flex', gap: 12, alignItems: 'flex-start',
-          }}>
-            <AlertTriangle size={16} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>Modo de Readaptación Activado</div>
-              <div className="caption" style={{ color: 'var(--muted)' }}>
-                Han pasado {deloadApplied.days} días desde tu última sesión de gimnasio.
-                Cargas reducidas {deloadApplied.percentage}% — RPE objetivo también bajó.
-              </div>
-            </div>
-          </div>
+          <SessionAlertBanner
+            title="Modo de Readaptación Activado"
+            description={`Han pasado ${deloadApplied.days} días desde tu última sesión de gimnasio. Cargas reducidas ${deloadApplied.percentage}% — RPE objetivo también bajó.`}
+          />
         )}
 
         {saveError && (
@@ -620,259 +454,35 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         )}
 
         {/* RPE reference */}
-        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 20px' }}>
-          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 10 }}>RPE — Esfuerzo Percibido</div>
-          <div className="caption" style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: 10 }}>
-            RPE mide cuántas repeticiones te quedaron antes del fallo al terminar cada serie. No es cuánto pesa, es cómo te sentiste.
-          </div>
-          <div className="mono caption" style={{ color: 'var(--muted)', lineHeight: 2 }}>
-            <strong style={{ color: 'var(--ink)' }}>6</strong> = quedan 4+ · {' '}
-            <strong style={{ color: 'var(--ink)' }}>7</strong> = quedan 3 · {' '}
-            <strong style={{ color: 'var(--ink)' }}>8</strong> = quedan 2 · {' '}
-            <strong style={{ color: 'var(--ink)' }}>9</strong> = queda 1 · {' '}
-            <strong style={{ color: 'var(--ink)' }}>10</strong> = fallo
-          </div>
-          <div className="caption" style={{ color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-            Ejemplo: si hiciste 8 reps con RPE 8, sentiste que podrías haber hecho 2 más antes de fallar. Ese es el objetivo — entrenar cerca del límite sin llegar a él.
-          </div>
-        </div>
+        <SessionRpeGuide />
 
         {/* ── Exercise log cards ──────────────────────────────── */}
         {(Array.isArray(logs) ? logs : []).map((log, i) => (
-          <div
+          <SessionExerciseCard
             key={`log-${i}-${log.exercise_id}`}
-            style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}
-          >
-            {/* Exercise name + controls */}
-            <div style={{
-              padding: isMobile ? '14px 16px' : '18px 24px',
-              borderBottom: '1px solid var(--rule)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
-            }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                {log.exercise_name ? (
-                  <>
-                    <div style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.3 }}>{log.exercise_name}</div>
-                    {getCatalogEntry(log.exercise_name) && (
-                      <button
-                        onClick={() => setDetailExercise(log.exercise_name)}
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', gap: 4,
-                          color: 'var(--accent)', fontFamily: 'var(--sans)',
-                          fontSize: 11, fontWeight: 700, padding: '4px 0',
-                          textTransform: 'uppercase', letterSpacing: '0.06em',
-                        }}
-                      >
-                        <Eye size={11} /> Ver técnica
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <select
-                    value={log.exercise_id}
-                    onChange={e => updateLog(i, 'exercise_id', e.target.value)}
-                    style={{
-                      width: '100%', background: 'transparent', border: 'none', outline: 'none',
-                      fontFamily: 'var(--sans)', fontWeight: 700, fontSize: 15,
-                      color: 'var(--ink)', cursor: 'pointer',
-                    }}
-                  >
-                    <option value="">Seleccionar ejercicio…</option>
-                    {exercises.map(ex => (
-                      <option key={ex.id} value={ex.id}>{ex.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              {/* Rest chip + delete */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  border: '1px solid var(--rule)', borderRadius: 999, padding: '4px 10px',
-                }}>
-                  <Clock size={10} style={{ color: 'var(--muted)' }} />
-                  <span className="mono caption" style={{ whiteSpace: 'nowrap' }}>{getRestLabel(log.rpe)}</span>
-                </div>
-
-                {confirmDeleteIdx === i ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button
-                      onClick={() => removeLog(i)}
-                      className="btn btn-ghost"
-                      style={{ padding: '4px 10px', fontSize: 12, color: '#ba1a1a', borderColor: '#ba1a1a', gap: 4 }}
-                    >
-                      <Trash2 size={11} /> Borrar
-                    </button>
-                    <button onClick={() => setConfirmDeleteIdx(null)} className="btn btn-ghost" style={{ padding: 6 }}>
-                      <X size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteIdx(i)}
-                    className="btn btn-ghost"
-                    style={{ padding: 6, color: 'var(--muted)' }}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Delete confirmation */}
-            {confirmDeleteIdx === i && (
-              <div style={{
-                padding: '10px 16px',
-                background: 'color-mix(in oklab, #ba1a1a, transparent 92%)',
-                borderBottom: '1px solid var(--rule)',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <AlertTriangle size={12} style={{ color: '#ba1a1a', flexShrink: 0 }} />
-                <span className="caption" style={{ color: '#ba1a1a' }}>
-                  ¿Eliminar <strong>{log.exercise_name || 'este ejercicio'}</strong>?
-                </span>
-              </div>
-            )}
-
-            {/* 4-column input grid — 1px gap creates divider lines */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, background: 'var(--rule)' }}>
-              {/* SERIES */}
-              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
-                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>SERIES</span>
-                <input
-                  type="number"
-                  className="session-num-input"
-                  value={log.sets}
-                  onChange={e => updateLog(i, 'sets', +e.target.value)}
-                  inputMode="numeric"
-                  step={1}
-                  min={1}
-                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
-                />
-              </div>
-              {/* REPS */}
-              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
-                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>REPS</span>
-                <input
-                  type="number"
-                  className="session-num-input"
-                  value={log.reps_per_set}
-                  onChange={e => updateLog(i, 'reps_per_set', +e.target.value)}
-                  inputMode="numeric"
-                  step={1}
-                  min={1}
-                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--ink)', outline: 'none' }}
-                />
-              </div>
-              {/* PESO */}
-              <div style={{ background: 'var(--paper)', padding: isMobile ? '10px 4px' : '12px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
-                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>PESO</span>
-                <WeightCell
-                  kg={log.weight}
-                  isMobile={isMobile}
-                  isBW={!!(travelDraft && log.weight === 0)}
-                  onChange={kg => updateLog(i, 'weight', kg)}
-                  onAddWeight={() => updateLog(i, 'weight', 2.5)}
-                />
-              </div>
-              {/* RPE */}
-              <div style={{ background: 'var(--paper)', padding: isMobile ? '12px 6px' : '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
-                <span className="uc" style={{ color: 'var(--muted)', fontSize: 9 }}>RPE</span>
-                <input
-                  type="number"
-                  className="session-num-input"
-                  value={log.rpe}
-                  onChange={e => updateLog(i, 'rpe', +e.target.value)}
-                  inputMode="numeric"
-                  step={1}
-                  min={5}
-                  max={10}
-                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: isMobile ? 20 : 24, fontWeight: 600, color: 'var(--accent)', outline: 'none' }}
-                />
-              </div>
-            </div>
-
-            {/* RPE inline hint */}
-            <div style={{ padding: '8px 16px', borderTop: '1px solid var(--rule)', display: 'flex', justifyContent: 'flex-end' }}>
-              <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>
-                RPE {log.rpe} —{' '}
-                {log.rpe >= 10 ? 'fallo muscular' :
-                 log.rpe === 9 ? 'queda 1 rep' :
-                 log.rpe === 8 ? 'quedan 2 reps' :
-                 log.rpe === 7 ? 'quedan 3 reps' :
-                                 'quedan 4+ reps'}
-              </span>
-            </div>
-          </div>
+            log={log}
+            index={i}
+            exercises={exercises}
+            isMobile={isMobile}
+            isTravelDraft={Boolean(travelDraft)}
+            confirmDelete={confirmDeleteIdx === i}
+            onShowTechnique={setDetailExercise}
+            onAskDelete={setConfirmDeleteIdx}
+            onCancelDelete={() => setConfirmDeleteIdx(null)}
+            onRemove={removeLog}
+            onUpdate={updateLog}
+          />
         ))}
 
-        {/* Add exercise */}
-        <button
-          onClick={addLog}
-          style={{
-            background: 'transparent',
-            border: '1px dashed var(--rule)',
-            borderRadius: 12,
-            padding: '16px 24px',
-            cursor: 'pointer',
-            fontFamily: 'var(--sans)',
-            fontWeight: 600,
-            fontSize: 14,
-            color: 'var(--muted)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            transition: 'color .15s, border-color .15s',
-          }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--ink)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--ink)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--rule)'; }}
-        >
-          <Plus size={16} /> Agregar ejercicio
-        </button>
-
-        {/* Save button */}
-        {Array.isArray(logs) && logs.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <button
-              onClick={handleSave}
-              disabled={saving || !sessionName}
-              className="btn btn-ink btn-xl"
-              style={{ justifyContent: 'center', opacity: (saving || !sessionName) ? 0.4 : 1 }}
-            >
-              {saved
-                ? <><Check size={18} /> ¡Guardado!</>
-                : saving
-                ? <><Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> Guardando…</>
-                : <><Save size={16} /> Guardar sesión</>}
-            </button>
-
-            {/* Progression summary — shown after save */}
-            {saved && progressionResults.length > 0 && (
-              <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--rule)' }}>
-                  <div className="uc" style={{ color: 'var(--muted)' }}>Progresión automática</div>
-                </div>
-                {progressionResults.map(r => (
-                  <div
-                    key={r.exercise_name}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      gap: 12, padding: '12px 20px', borderTop: '1px solid var(--rule)',
-                    }}
-                  >
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>{r.exercise_name}</span>
-                    {r.action === 'up'
-                      ? <span className="mono caption" style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>↑ {r.prev_weight} kg ({kgToLbs(r.prev_weight)} lb) → {r.next_weight} kg ({kgToLbs(r.next_weight)} lb)</span>
-                      : <span className="mono caption" style={{ color: 'var(--muted)', flexShrink: 0 }}>⚠ Revisa el peso</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        <SessionSavePanel
+          canSave={Boolean(sessionName)}
+          saving={saving}
+          saved={saved}
+          progressionResults={progressionResults}
+          showSaveActions={Array.isArray(logs) && logs.length > 0}
+          onAddExercise={addLog}
+          onSave={handleSave}
+        />
       </main>
 
       {/* Exercise detail modal */}
