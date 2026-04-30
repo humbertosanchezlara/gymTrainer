@@ -149,7 +149,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         { onConflict: 'user_id,name' }
       );
 
-      const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
+      const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).neq('status', 'NO');
       if (!exercises || exercises.length === 0) throw new Error('No exercises');
 
       let currentKeyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
@@ -234,7 +234,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         { onConflict: 'user_id,name' }
       );
 
-      const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).eq('status', 'YES');
+      const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).neq('status', 'NO');
       if (!exercises || exercises.length === 0) throw new Error('Failed to seed exercises');
 
       let programName: string, splitType: string, totalDays: number;

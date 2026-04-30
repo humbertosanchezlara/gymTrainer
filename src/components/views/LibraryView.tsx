@@ -9,6 +9,7 @@ import AddExerciseModal from '../AddExerciseModal';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { getCatalogEntry } from '../../data/exerciseCatalog';
 import { Loader2, Search, X, Plus, Trash2, ArrowLeft, Check, RotateCcw, Settings, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { isExerciseEnabled, normalizeProgramDayExercise } from '../../utils/programState';
 
 type Screen = 'main' | 'excluded' | 'confirm';
 
@@ -81,7 +82,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
       setExercises(data);
       // Sync local state from DB (reset pending changes)
       const init: Record<string, boolean> = {};
-      data.forEach((ex: Exercise) => { init[ex.id] = ex.status !== 'NO'; });
+      data.forEach((ex: Exercise) => { init[ex.id] = isExerciseEnabled(ex.status); });
       setLocalEnabled(init);
     }
     setLoading(false);
@@ -99,7 +100,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
     [exercises]
   );
 
-  const isEnabled = (ex: Exercise) => localEnabled[ex.id] ?? (ex.status !== 'NO');
+  const isEnabled = (ex: Exercise) => localEnabled[ex.id] ?? isExerciseEnabled(ex.status);
 
   const totals = useMemo(() => {
     let total = 0, on = 0;
@@ -118,7 +119,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
   const pendingChanges = useMemo((): PendingEntry[] => {
     return exercises
       .filter(ex => {
-        const dbOn = ex.status !== 'NO';
+        const dbOn = isExerciseEnabled(ex.status);
         const localOn = localEnabled[ex.id] ?? dbOn;
         return localOn !== dbOn;
       })
@@ -140,7 +141,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
   // ── Actions ───────────────────────────────────────────────────────────────
   const toggleExercise = (ex: Exercise) => {
     setLocalEnabled(prev => {
-      const current = prev[ex.id] ?? (ex.status !== 'NO');
+      const current = prev[ex.id] ?? isExerciseEnabled(ex.status);
       return { ...prev, [ex.id]: !current };
     });
   };
@@ -187,7 +188,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
         const exerciseMap = new Map(allExercises.map((e: Exercise) => [e.id, e]));
         const yesByCategory = new Map<string, Array<{ id: string; name: string }>>();
         for (const ex of allExercises) {
-          if (ex.status === 'YES') {
+          if (isExerciseEnabled(ex.status)) {
             if (!yesByCategory.has(ex.category)) yesByCategory.set(ex.category, []);
             yesByCategory.get(ex.category)!.push({ id: ex.id, name: ex.name });
           }
@@ -202,16 +203,18 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
 
         if (allDays) {
           for (const day of allDays) {
-            const dayExercises = day.exercises as Array<Record<string, unknown>>;
-            const usedIds = new Set(dayExercises.map(e => e.exercise_id as string));
+            const dayExercises = (Array.isArray(day.exercises) ? day.exercises : []).map((exercise) =>
+              normalizeProgramDayExercise(exercise as Record<string, unknown>)
+            );
+            const usedIds = new Set(dayExercises.map((exercise) => exercise.exercise_id));
             let changed = false;
 
-            const updated = dayExercises.map(ex => {
-              const exId = ex.exercise_id as string;
+            const updated = dayExercises.flatMap(ex => {
+              const exId = ex.exercise_id;
               const exInfo = exerciseMap.get(exId);
-              if (!exInfo || exInfo.status === 'NO') {
-                const category = (ex.category as string) ?? exInfo?.category;
-                const candidates = yesByCategory.get(category) ?? [];
+              if (!exInfo || !isExerciseEnabled(exInfo.status)) {
+                const category = ex.category || exInfo?.category;
+                const candidates = category ? (yesByCategory.get(category) ?? []) : [];
                 const substitute = candidates.find(s => !usedIds.has(s.id));
                 if (substitute) {
                   usedIds.delete(exId);
@@ -220,10 +223,13 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
                   const newWeight = Math.round(
                     estimateWeight(substitute.name, Number(profile?.bodyweight) || 75, profile?.training_experience ?? 'intermediate', profile?.gender ?? 'male') / 2.5
                   ) * 2.5;
-                  return { ...ex, exercise_id: substitute.id, exercise_name: substitute.name, weight: newWeight };
+                  return [{ ...ex, exercise_id: substitute.id, exercise_name: substitute.name, weight: newWeight }];
                 }
+                changed = true;
+                usedIds.delete(exId);
+                return [];
               }
-              return ex;
+              return [ex];
             });
 
             if (changed) {
@@ -238,7 +244,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
       if (allExercises) {
         setExercises(allExercises);
         const init: Record<string, boolean> = {};
-        allExercises.forEach((ex: Exercise) => { init[ex.id] = ex.status !== 'NO'; });
+        allExercises.forEach((ex: Exercise) => { init[ex.id] = isExerciseEnabled(ex.status); });
         setLocalEnabled(init);
       }
 
@@ -442,7 +448,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
               {/* Exercise rows */}
               {isOpen && group.items.map(ex => {
                 const on = isEnabled(ex);
-                const changed = isEnabled(ex) !== (ex.status !== 'NO');
+                const changed = isEnabled(ex) !== isExerciseEnabled(ex.status);
                 const hasCatalog = !!getCatalogEntry(ex.name);
                 return (
                   <div

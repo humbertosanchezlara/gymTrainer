@@ -7,6 +7,7 @@ import {
 } from '../engine/programGenerator';
 import { estimateWeight } from '../engine/weightEstimator';
 import { supabase } from './supabase';
+import { isExerciseEnabled } from '../utils/programState';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -225,7 +226,7 @@ REGLAS ESTRICTAS (en orden de prioridad):
 
     // Only keep LLM choices with valid IDs from the library
     const validLLM = llmDay.exercises.filter(
-      lx => exerciseMap.has(lx.exercise_id) && exerciseMap.get(lx.exercise_id)!.status === 'YES'
+      lx => exerciseMap.has(lx.exercise_id) && isExerciseEnabled(exerciseMap.get(lx.exercise_id)!.status)
     );
     if (validLLM.length === 0) return baseDay;
 
@@ -352,7 +353,7 @@ export async function generateAndSaveNextWeek(
 
   const [{ data: profile }, { data: exercises }, { data: wwData }] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', userId).single(),
-    supabase.from('exercises').select('*').eq('user_id', userId).eq('status', 'YES'),
+    supabase.from('exercises').select('*').eq('user_id', userId).neq('status', 'NO'),
     supabase.from('working_weights').select('exercise_id, weight').eq('user_id', userId),
   ]);
 

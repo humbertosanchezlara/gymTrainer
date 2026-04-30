@@ -14,13 +14,14 @@ import {
   type TravelDayContext,
 } from '../../lib/openaiTravelGenerator';
 import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
-import { Loader2, ArrowRight, MapPin, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowRight, MapPin, RefreshCw, Repeat2 } from 'lucide-react';
 import Modal from '../Modal';
 import type { Tab } from '../MainShell';
 import { HeroSession } from '../forge/HeroSession';
 import { AdjustWithAI } from '../forge/AdjustWithAI';
 import { ContextCards } from '../forge/ContextCards';
-import { fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
+import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
+import { replaceExerciseInProgram } from '../../utils/programExerciseMutations';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -65,6 +66,10 @@ function estimateDuration(exerciseCount: number): string {
   return `${min}–${max} min`;
 }
 
+function sessionDraftKey(userId: string) {
+  return `session_draft_${userId}`;
+}
+
 export default function DashboardView({ onNavigate, onStartSession, onStartTravel }: DashboardViewProps) {
   const { user } = useAuth();
   const toast = useToast();
@@ -73,6 +78,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [nextDayName, setNextDayName] = useState<string | null>(null);
   const [nextDayNum, setNextDayNum] = useState<number | null>(null);
   const [nextDayId, setNextDayId] = useState<string | null>(null);
+  const [programId, setProgramId] = useState<string | null>(null);
+  const [currentWeek, setCurrentWeek] = useState(1);
   const [programComplete, setProgramComplete] = useState(false);
   const [completedWeeks, setCompletedWeeks] = useState(0);
   const [todayExercises, setTodayExercises] = useState<ProgramDayExercise[]>([]);
@@ -82,6 +89,11 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [adjustedSummary, setAdjustedSummary] = useState<string | null>(null);
   const [originalExercises, setOriginalExercises] = useState<ProgramDayExercise[] | null>(null);
   const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<ProgramDayExercise | null>(null);
+  const [replacementCandidates, setReplacementCandidates] = useState<Array<{ id: string; name: string; category: string }>>([]);
+  const [replaceLoading, setReplaceLoading] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
 
   const [showTravelSetup, setShowTravelSetup] = useState(false);
   const [travelDays, setTravelDays] = useState(3);
@@ -103,6 +115,8 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         const sessCount = progress.sessionCount;
         const weeksCompleted = Math.floor(sessCount / pRes.data.total_days);
         setCompletedWeeks(Math.min(weeksCompleted, pRes.data.total_weeks ?? 12));
+        setProgramId(pRes.data.id);
+        setCurrentWeek(progress.currentWeek);
 
         if (progress.programComplete) {
           setProgramComplete(true);
@@ -114,31 +128,12 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         const dayNum = progress.currentDay;
         setNextDayNum(dayNum);
 
-        let { data: dayData } = await supabase
-          .from('program_days')
-          .select('id, day_name, exercises')
-          .eq('program_id', pRes.data.id)
-          .eq('week_num', weekNum)
-          .eq('day_number', dayNum)
-          .maybeSingle();
+        const dayResult = await fetchProgramDayForWeekOrFallback(pRes.data.id, weekNum, dayNum);
 
-        if (!dayData) {
-          ({ data: dayData } = await supabase
-            .from('program_days')
-            .select('id, day_name, exercises')
-            .eq('program_id', pRes.data.id)
-            .eq('week_num', 1)
-            .eq('day_number', dayNum)
-            .maybeSingle());
-        }
-
-        if (dayData) {
-          setNextDayName(dayData.day_name);
-          setNextDayId(dayData.id);
-          const exArr = dayData.exercises;
-          if (Array.isArray(exArr)) {
-            setTodayExercises(exArr.map((ex) => normalizeProgramDayExercise(ex as Record<string, unknown>)));
-          }
+        if (dayResult.day) {
+          setNextDayName(dayResult.day.day_name);
+          setNextDayId(dayResult.day.id);
+          setTodayExercises(dayResult.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise)));
         }
       }
 
@@ -203,7 +198,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
                 const matchedEx = adjusted[matchIdx];
                 const currentIds = new Set(adjusted.map((e) => e.exercise_id));
                 const { data: candidates } = await supabase.from('exercises').select('id, name, category')
-                  .eq('user_id', user.id).in('status', ['YES', 'SUB']).eq('category', matchedEx.category).neq('id', matchedEx.exercise_id);
+                  .eq('user_id', user.id).neq('status', 'NO').eq('category', matchedEx.category).neq('id', matchedEx.exercise_id);
                 const substitute = candidates?.find(c => !currentIds.has(c.id));
                 if (substitute) {
                   adjusted[matchIdx] = { ...matchedEx, exercise_id: substitute.id, exercise_name: substitute.name, notes: 'Sustituido por solicitud' };
@@ -226,6 +221,73 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       toast.error('No se pudieron aplicar los ajustes. Intenta de nuevo.');
     } finally {
       setAdjusting(false);
+    }
+  };
+
+  const openReplaceModal = () => {
+    setSelectedExercise(null);
+    setReplacementCandidates([]);
+    setReplaceError(null);
+    setShowReplaceModal(true);
+  };
+
+  const selectExerciseForReplacement = async (exercise: ProgramDayExercise) => {
+    if (!user) return;
+    setSelectedExercise(exercise);
+    setReplaceError(null);
+    setReplaceLoading(true);
+    try {
+      const currentIds = new Set(todayExercises.map((item) => item.exercise_id));
+      const { data } = await supabase
+        .from('exercises')
+        .select('id, name, category')
+        .eq('user_id', user.id)
+        .neq('status', 'NO')
+        .eq('category', exercise.category)
+        .neq('id', exercise.exercise_id);
+      setReplacementCandidates((data ?? []).filter((candidate) => !currentIds.has(candidate.id)));
+    } catch {
+      setReplaceError('No se pudieron cargar reemplazos para este ejercicio.');
+    } finally {
+      setReplaceLoading(false);
+    }
+  };
+
+  const applyPersistentReplacement = async (candidateId: string) => {
+    if (!user || !programId || !selectedExercise) return;
+    setReplaceLoading(true);
+    setReplaceError(null);
+    try {
+      const result = await replaceExerciseInProgram({
+        userId: user.id,
+        programId,
+        currentWeek,
+        fromExerciseId: selectedExercise.exercise_id ?? '',
+        toExerciseId: candidateId,
+      });
+      localStorage.removeItem(sessionDraftKey(user.id));
+      const refreshed = nextDayNum
+        ? await fetchProgramDayForWeekOrFallback(programId, currentWeek, nextDayNum)
+        : null;
+      if (refreshed?.day) {
+        setNextDayName(refreshed.day.day_name);
+        setNextDayId(refreshed.day.id);
+        setTodayExercises(refreshed.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise)));
+      }
+      setOriginalExercises(null);
+      setAdjustedSummary(null);
+      setShowReplaceModal(false);
+      setSelectedExercise(null);
+      setReplacementCandidates([]);
+      toast.success(
+        result.usedExistingWeight
+          ? `${result.replacement.name} reemplazó a ${result.removed.name}.`
+          : `${result.replacement.name} reemplazó a ${result.removed.name} con peso de calibración.`
+      );
+    } catch {
+      setReplaceError('No se pudo aplicar el reemplazo. Intenta de nuevo.');
+    } finally {
+      setReplaceLoading(false);
     }
   };
 
@@ -286,7 +348,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     }
   };
 
-  const weekNum = completedWeeks + 1;
+  const weekNum = currentWeek;
   const blockName = weekNum <= 4 ? 'Volumen' : weekNum <= 8 ? 'Intensidad' : weekNum <= 11 ? 'Pico' : 'Descarga';
   const weeklyCompleted = Math.min(nextDayNum ? nextDayNum - 1 : 0, 7);
 
@@ -337,6 +399,25 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         adjustedSummary={adjustedSummary}
         onRevert={originalExercises ? handleRevert : undefined}
       />
+
+      {todayExercises.length > 0 && !programComplete && (
+        <button
+          type="button"
+          onClick={openReplaceModal}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            width: '100%', padding: '14px 18px',
+            background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 18,
+            cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)',
+          }}
+        >
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Cambiar ejercicio</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Actualiza tu programa activo con otro ejercicio compatible.</span>
+          </span>
+          <Repeat2 size={16} />
+        </button>
+      )}
 
       {/* AI adjust */}
       <AdjustWithAI
@@ -491,6 +572,99 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
               style={{ width: '100%', boxSizing: 'border-box' }}
             />
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showReplaceModal}
+        onClose={() => {
+          if (replaceLoading) return;
+          setShowReplaceModal(false);
+          setSelectedExercise(null);
+          setReplacementCandidates([]);
+          setReplaceError(null);
+        }}
+        title={selectedExercise ? `Reemplazar ${selectedExercise.exercise_name}` : 'Cambiar ejercicio'}
+        description={selectedExercise ? 'Elige un ejercicio activo de la misma categoría.' : 'Primero selecciona qué ejercicio quieres cambiar.'}
+        size="md"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {!selectedExercise && todayExercises.map((exercise) => (
+            <button
+              key={exercise.exercise_id}
+              type="button"
+              onClick={() => selectExerciseForReplacement(exercise)}
+              style={{
+                background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 12,
+                padding: '14px 16px', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)',
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{exercise.exercise_name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                {exercise.category} · {exercise.sets}×{exercise.reps_min}{exercise.reps_max !== exercise.reps_min ? `–${exercise.reps_max}` : ''}
+              </div>
+            </button>
+          ))}
+
+          {selectedExercise && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedExercise(null);
+                  setReplacementCandidates([]);
+                  setReplaceError(null);
+                }}
+                className="btn btn-ghost"
+                style={{ alignSelf: 'flex-start' }}
+              >
+                Elegir otro ejercicio
+              </button>
+
+              {replaceLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 13 }}>
+                  <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
+                  Cargando reemplazos…
+                </div>
+              )}
+
+              {!replaceLoading && replacementCandidates.map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  onClick={() => applyPersistentReplacement(candidate.id)}
+                  style={{
+                    background: 'var(--paper-2)', border: '1px solid var(--rule)', borderRadius: 12,
+                    padding: '14px 16px', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)',
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{candidate.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    Se activará en tu biblioteca y reemplazará a {selectedExercise.exercise_name}.
+                  </div>
+                </button>
+              ))}
+
+              {!replaceLoading && replacementCandidates.length === 0 && (
+                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  No hay reemplazos activos disponibles para esta categoría.
+                </div>
+              )}
+            </>
+          )}
+
+          {replaceError && (
+            <div style={{
+              border: '1px solid color-mix(in oklab, var(--accent), transparent 70%)',
+              background: 'color-mix(in oklab, var(--accent), transparent 94%)',
+              color: 'var(--ink)',
+              borderRadius: 12,
+              padding: '12px 14px',
+              fontSize: 13,
+            }}>
+              {replaceError}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

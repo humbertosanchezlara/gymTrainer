@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import type { Program, ProgramDay, ProgramDayExercise } from '../types';
 import { BLOCKS } from '../engine/programGenerator';
 import { Loader2, ChevronDown } from 'lucide-react';
-import { fetchProgramProgressState, normalizeProgramDayExercise } from '../utils/programState';
+import { fetchProgramProgressState, fetchProgramWeekDays, fetchProgramWeekDaysOrFallback } from '../utils/programState';
 
 export default function ProgramView() {
   const { user } = useAuth();
@@ -14,6 +14,10 @@ export default function ProgramView() {
   const [showRPE, setShowRPE] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState(1);
+  const [currentDay, setCurrentDay] = useState(1);
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [generatedWeek, setGeneratedWeek] = useState(true);
+  const [sourceWeek, setSourceWeek] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -27,60 +31,54 @@ export default function ProgramView() {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
-    ).then(({ data }) => {
+    ).then(async ({ data }) => {
       if (!mounted) return;
       if (data) {
         setProgram(data);
-        fetchProgramProgressState(user.id, data).then((progress) => {
-          if (mounted) setCurrentWeek(progress.currentWeek);
-        });
-        Promise.resolve(
-          supabase
-            .from('program_days')
-            .select('*')
-            .eq('program_id', data.id)
-            .eq('week_num', currentWeek)
-            .order('day_number')
-        ).then(({ data: dayData }) => {
-          if (!mounted) return;
-          if (dayData && dayData.length > 0) {
-            setDays(dayData.map((day) => ({
-              ...day,
-              exercises: (Array.isArray(day.exercises) ? day.exercises : []).map((ex: unknown) =>
-                normalizeProgramDayExercise(ex as ProgramDayExercise)
-              ),
-            })));
-          } else {
-            Promise.resolve(
-              supabase
-                .from('program_days')
-                .select('*')
-                .eq('program_id', data.id)
-                .eq('week_num', 1)
-                .order('day_number')
-            ).then(({ data: fallbackDays }) => {
-              if (!mounted) return;
-              if (fallbackDays) {
-                setDays(fallbackDays.map((day) => ({
-                  ...day,
-                  exercises: (Array.isArray(day.exercises) ? day.exercises : []).map((ex: unknown) =>
-                    normalizeProgramDayExercise(ex as ProgramDayExercise)
-                  ),
-                })));
-              }
-              setLoading(false);
-            }).catch(() => { if (mounted) setLoading(false); });
-            return;
-          }
-          setLoading(false);
-        }).catch(() => { if (mounted) setLoading(false); });
+        const progress = await fetchProgramProgressState(user.id, data);
+        if (!mounted) return;
+        setCurrentWeek(progress.currentWeek);
+        setCurrentDay(progress.currentDay);
+        setSelectedWeek(progress.currentWeek);
       } else {
         setLoading(false);
       }
     }).catch(() => { if (mounted) setLoading(false); });
 
     return () => { mounted = false; };
-  }, [user, currentWeek]);
+  }, [user]);
+
+  useEffect(() => {
+    if (!program) return;
+    let cancelled = false;
+
+    const loadWeek = async () => {
+      setLoading(true);
+      try {
+        if (selectedWeek === currentWeek) {
+          const result = await fetchProgramWeekDaysOrFallback(program.id, selectedWeek);
+          if (cancelled) return;
+          setDays(result.days);
+          setGeneratedWeek(!result.isFallback || result.sourceWeek === selectedWeek);
+          setSourceWeek(result.sourceWeek);
+        } else {
+          const explicitDays = await fetchProgramWeekDays(program.id, selectedWeek);
+          if (cancelled) return;
+          setDays(explicitDays);
+          setGeneratedWeek(explicitDays.length > 0);
+          setSourceWeek(explicitDays.length > 0 ? selectedWeek : null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadWeek().catch(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [program, selectedWeek, currentWeek]);
 
   if (loading) {
     return (
@@ -103,8 +101,9 @@ export default function ProgramView() {
   }
 
   const totalWeeks = program.total_weeks ?? 12;
-  const block = BLOCKS.find(b => b.weeks.includes(currentWeek)) ?? BLOCKS[0];
-  const todayDayNumber = days[0]?.day_number ?? 1;
+  const block = BLOCKS.find(b => b.weeks.includes(selectedWeek)) ?? BLOCKS[0];
+  const todayDayNumber = selectedWeek === currentWeek ? currentDay : -1;
+  const weekNumbers = Array.from({ length: totalWeeks }, (_, index) => index + 1);
 
   return (
     <div className="forge-fade">
@@ -138,7 +137,7 @@ export default function ProgramView() {
           minWidth: 38,
           textAlign: 'center',
           letterSpacing: '-0.03em',
-        }}>{currentWeek}</div>
+        }}>{selectedWeek}</div>
 
         <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(241,237,228,0.15)' }} />
 
@@ -149,7 +148,7 @@ export default function ProgramView() {
             letterSpacing: '0.16em',
             textTransform: 'uppercase',
             opacity: 0.55,
-          }}>SEMANA {currentWeek} / {totalWeeks}</div>
+          }}>SEMANA {selectedWeek} / {totalWeeks}</div>
           <div style={{
             fontFamily: 'var(--sans)',
             fontSize: 20,
@@ -176,6 +175,70 @@ export default function ProgramView() {
           }}>{block.repsMin}–{block.repsMax} reps · RPE {block.rpeMin}–{block.rpeMax}</div>
         </div>
       </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+        gap: 8,
+        marginBottom: 18,
+      }}>
+        {weekNumbers.map((week) => {
+          const isCurrent = week === currentWeek;
+          const isSelected = week === selectedWeek;
+          const weekBlock = BLOCKS.find((entry) => entry.weeks.includes(week)) ?? BLOCKS[0];
+          return (
+            <button
+              key={week}
+              type="button"
+              onClick={() => setSelectedWeek(week)}
+              style={{
+                borderRadius: 12,
+                border: isSelected ? '1.5px solid var(--ink)' : '1px solid var(--rule)',
+                background: isSelected ? 'var(--paper-2)' : 'transparent',
+                padding: '10px 8px',
+                cursor: 'pointer',
+                fontFamily: 'var(--sans)',
+                color: 'var(--ink)',
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>{week}</div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                {isCurrent ? 'Actual' : weekBlock.name}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {!generatedWeek && (
+        <div style={{
+          background: 'var(--paper-2)',
+          border: '1px solid var(--rule)',
+          borderRadius: 14,
+          padding: '14px 16px',
+          marginBottom: 16,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Semana aún no generada</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+            Forge todavía no ha generado el detalle de la semana {selectedWeek}. Esta fase seguirá el bloque {block.name}
+            {' '}con objetivo de {block.repsMin}–{block.repsMax} reps y RPE {block.rpeMin}–{block.rpeMax}.
+          </div>
+        </div>
+      )}
+
+      {generatedWeek && sourceWeek !== null && sourceWeek !== selectedWeek && (
+        <div style={{
+          background: 'var(--paper-2)',
+          border: '1px solid var(--rule)',
+          borderRadius: 14,
+          padding: '14px 16px',
+          marginBottom: 16,
+          fontSize: 12.5,
+          color: 'var(--muted)',
+        }}>
+          Mostrando la plantilla base de la semana {sourceWeek} mientras se genera el detalle actualizado.
+        </div>
+      )}
 
       {/* Esta semana header + RPE toggle */}
       <div style={{
@@ -277,6 +340,7 @@ export default function ProgramView() {
       </div>
 
       {/* Day cards */}
+      {generatedWeek && (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {days.map(day => {
           const exercises = (Array.isArray(day.exercises) ? day.exercises : []) as ProgramDayExercise[];
@@ -409,6 +473,7 @@ export default function ProgramView() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { Exercise } from '../types';
 import { getSplitTemplate, type ExerciseSlot } from './splitTemplates';
 import { estimateWeight } from './weightEstimator';
+import { isExerciseEnabled } from '../utils/programState';
 
 // ─── Block Periodization Parameters ──────────────────────
 export interface BlockParams {
@@ -80,7 +81,7 @@ export interface GeneratedProgram {
 // ─── Exercise Resolution ─────────────────────────────────
 /**
  * Resolve an exercise slot to an actual exercise from the user's library.
- * Priority: preferred exercise (if available & YES) → any YES exercise in category → null
+ * Priority: preferred exercise (if available & enabled) → any enabled exercise in category → null
  */
 function resolveExercise(
   slot: ExerciseSlot,
@@ -88,13 +89,13 @@ function resolveExercise(
   usedIds: Set<string>
 ): Exercise | null {
   const available = exercises.filter(
-    (e) => e.category === slot.category && e.status === 'YES' && !usedIds.has(e.id)
+    (e) => e.category === slot.category && isExerciseEnabled(e.status) && !usedIds.has(e.id)
   );
 
   if (available.length === 0) {
     // Fallback: allow already-used exercises in this category
     const fallback = exercises.filter(
-      (e) => e.category === slot.category && e.status === 'YES'
+      (e) => e.category === slot.category && isExerciseEnabled(e.status)
     );
     if (fallback.length === 0) return null;
     // If preferred, try to find it
@@ -257,7 +258,7 @@ export function getCycleAdjustments(cycleNumber: number): CycleAdjustments {
 /**
  * Generate a complete training program.
  *
- * @param exercises - User's exercise library (only YES status will be used)
+ * @param exercises - User's exercise library (only enabled exercises will be used)
  * @param days - Number of training days per week
  * @param bodyweight - User's bodyweight in kg
  * @param experience - beginner | intermediate | advanced

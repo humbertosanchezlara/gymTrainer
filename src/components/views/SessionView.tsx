@@ -12,7 +12,7 @@ import {
 import { generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { Tab } from '../MainShell';
-import { fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
+import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
 
 // ─── Weight unit helpers ───────────────────────────────────
 const KG_TO_LBS = 2.20462;
@@ -205,7 +205,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         .from('exercises')
         .select('*')
         .eq('user_id', user.id)
-        .eq('status', 'YES')
+        .neq('status', 'NO')
         .order('category');
       if (exData) setExercises(exData);
 
@@ -284,27 +284,10 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         }
       }
 
-      // Try week-specific day first, fall back to week 1 (base program)
-      let { data: programDay } = await supabase
-        .from('program_days')
-        .select('*')
-        .eq('program_id', program.id)
-        .eq('week_num', currentWeek)
-        .eq('day_number', currentDayNum)
-        .maybeSingle();
+      const dayResult = await fetchProgramDayForWeekOrFallback(program.id, currentWeek, currentDayNum);
 
-      if (!programDay) {
-        ({ data: programDay } = await supabase
-          .from('program_days')
-          .select('*')
-          .eq('program_id', program.id)
-          .eq('week_num', 1)
-          .eq('day_number', currentDayNum)
-          .maybeSingle());
-      }
-
-      if (programDay) {
-        setSessionName(programDay.day_name);
+      if (dayResult.day) {
+        setSessionName(dayResult.day.day_name);
 
         const { data: wwData } = await supabase
           .from('working_weights')
@@ -331,7 +314,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
           reps_max: number;
           weight: number;
           rpe: number;
-        }> = (Array.isArray(programDay.exercises) ? programDay.exercises : []).map((ex: unknown) =>
+        }> = (Array.isArray(dayResult.day.exercises) ? dayResult.day.exercises : []).map((ex: unknown) =>
           normalizeProgramDayExercise(ex as Record<string, unknown>)
         );
         const preFilled: SessionLogEntry[] = dayExercises.map((ex) => {

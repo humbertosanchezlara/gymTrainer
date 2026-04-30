@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Program, ProgramDayExercise } from '../types';
+import type { ExerciseStatus, Program, ProgramDay, ProgramDayExercise } from '../types';
 
 type LegacyProgramDayExercise = {
   exercise_id?: string;
@@ -26,6 +26,18 @@ export interface ProgramProgressState {
   lastSessionDate: string | null;
 }
 
+export interface ProgramDayLoadResult {
+  day: ProgramDay | null;
+  sourceWeek: number | null;
+  isFallback: boolean;
+}
+
+export interface ProgramWeekLoadResult {
+  days: ProgramDay[];
+  sourceWeek: number | null;
+  isFallback: boolean;
+}
+
 export function getBlockInfo(week: number): { blockNum: number; blockName: string } {
   if (week <= 4) return { blockNum: 1, blockName: 'Volumen' };
   if (week <= 8) return { blockNum: 2, blockName: 'Intensidad' };
@@ -46,6 +58,70 @@ export function normalizeProgramDayExercise(exercise: LegacyProgramDayExercise):
     weight: exercise.weight ?? 0,
     is_calibration: exercise.is_calibration ?? false,
     notes: exercise.notes ?? '',
+  };
+}
+
+export function normalizeExerciseStatus(status: ExerciseStatus | 'SUB' | null | undefined): ExerciseStatus {
+  return status === 'NO' ? 'NO' : 'YES';
+}
+
+export function isExerciseEnabled(status: ExerciseStatus | 'SUB' | null | undefined): boolean {
+  return normalizeExerciseStatus(status) === 'YES';
+}
+
+function normalizeProgramDay(day: ProgramDay): ProgramDay {
+  return {
+    ...day,
+    exercises: (Array.isArray(day.exercises) ? day.exercises : []).map((exercise) =>
+      normalizeProgramDayExercise(exercise as unknown as Record<string, unknown>)
+    ),
+  };
+}
+
+export async function fetchProgramWeekDays(
+  programId: string,
+  weekNum: number
+): Promise<ProgramDay[]> {
+  const { data, error } = await supabase
+    .from('program_days')
+    .select('*')
+    .eq('program_id', programId)
+    .eq('week_num', weekNum)
+    .order('day_number');
+
+  if (error) throw error;
+  return (data ?? []).map((day) => normalizeProgramDay(day as ProgramDay));
+}
+
+export async function fetchProgramWeekDaysOrFallback(
+  programId: string,
+  weekNum: number,
+  fallbackWeekNum = 1
+): Promise<ProgramWeekLoadResult> {
+  const primaryDays = await fetchProgramWeekDays(programId, weekNum);
+  if (primaryDays.length > 0 || weekNum === fallbackWeekNum) {
+    return { days: primaryDays, sourceWeek: primaryDays.length > 0 ? weekNum : null, isFallback: false };
+  }
+
+  const fallbackDays = await fetchProgramWeekDays(programId, fallbackWeekNum);
+  return {
+    days: fallbackDays,
+    sourceWeek: fallbackDays.length > 0 ? fallbackWeekNum : null,
+    isFallback: fallbackDays.length > 0,
+  };
+}
+
+export async function fetchProgramDayForWeekOrFallback(
+  programId: string,
+  weekNum: number,
+  dayNum: number,
+  fallbackWeekNum = 1
+): Promise<ProgramDayLoadResult> {
+  const { days, sourceWeek, isFallback } = await fetchProgramWeekDaysOrFallback(programId, weekNum, fallbackWeekNum);
+  return {
+    day: days.find((day) => day.day_number === dayNum) ?? null,
+    sourceWeek,
+    isFallback,
   };
 }
 
