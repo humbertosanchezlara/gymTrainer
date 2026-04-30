@@ -21,10 +21,11 @@ CREATE TABLE IF NOT EXISTS programs (
 CREATE TABLE IF NOT EXISTS program_days (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   program_id UUID REFERENCES programs(id) ON DELETE CASCADE NOT NULL,
+  week_num INTEGER NOT NULL DEFAULT 1,
   day_number INTEGER NOT NULL,
   day_name TEXT NOT NULL,
   exercises JSONB NOT NULL DEFAULT '[]',
-  UNIQUE(program_id, day_number)
+  UNIQUE(program_id, week_num, day_number)
 );
 
 -- RLS

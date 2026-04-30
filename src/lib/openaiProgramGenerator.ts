@@ -444,15 +444,24 @@ export async function generateAndSaveNextWeek(
     previousSummary,
   });
 
-  await supabase.from('program_days').insert(
-    result.days.map(d => ({
-      program_id: programId,
-      day_number: d.day_number,
-      day_name: d.day_name,
-      exercises: d.exercises,
-      week_num: nextWeekNum,
-    }))
-  );
+  const rows = result.days.map(d => ({
+    program_id: programId,
+    day_number: d.day_number,
+    day_name: d.day_name,
+    exercises: d.exercises,
+    week_num: nextWeekNum,
+  }));
+
+  const { error } = await supabase
+    .from('program_days')
+    .upsert(rows, {
+      onConflict: 'program_id,week_num,day_number',
+      ignoreDuplicates: true,
+    });
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function ensureWeekGenerated(
