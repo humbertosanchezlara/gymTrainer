@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { ensureWeekGenerated } from '../../lib/openaiProgramGenerator';
 import { supabase } from '../../lib/supabase';
 import {
   generateTravelBlock,
@@ -88,6 +89,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [programComplete, setProgramComplete] = useState(false);
   const [completedWeeks, setCompletedWeeks] = useState(0);
   const [todayExercises, setTodayExercises] = useState<ProgramDayExercise[]>([]);
+  const [programLoadError, setProgramLoadError] = useState<string | null>(null);
 
   const [adjustInput, setAdjustInput] = useState('');
   const [adjusting, setAdjusting] = useState(false);
@@ -109,14 +111,16 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
   useEffect(() => {
     if (!user) return;
+    const userId = user.id;
     Promise.all([
-      supabase.from('sessions').select('*').eq('user_id', user.id).order('date', { ascending: false }).limit(5),
-      supabase.from('programs').select('id, total_days, total_weeks, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('sessions').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(5),
+      supabase.from('programs').select('id, total_days, total_weeks, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]).then(async ([sRes, pRes]) => {
+      setProgramLoadError(null);
       if (sRes.data) setSessions(sRes.data);
 
       if (pRes.data) {
-        const progress = await fetchProgramProgressState(user.id, pRes.data);
+        const progress = await fetchProgramProgressState(userId, pRes.data);
         const sessCount = progress.sessionCount;
         const weeksCompleted = Math.floor(sessCount / pRes.data.total_days);
         setCompletedWeeks(Math.min(weeksCompleted, pRes.data.total_weeks ?? 12));
@@ -133,12 +137,24 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         const dayNum = progress.currentDay;
         setNextDayNum(dayNum);
 
+        let generationFailed = false;
+        try {
+          await ensureWeekGenerated(userId, pRes.data.id, weekNum);
+        } catch (error) {
+          generationFailed = true;
+          console.error('[DashboardView] Week generation failed:', error);
+          setProgramLoadError(`No se pudo generar la semana ${weekNum}. Evitamos mostrarte una rutina vieja para que no entrenes con el detalle incorrecto.`);
+        }
         const dayResult = await fetchProgramDayForWeekOrFallback(pRes.data.id, weekNum, dayNum);
 
-        if (dayResult.day) {
+        if (dayResult.day && !(generationFailed && dayResult.isFallback && dayResult.sourceWeek !== weekNum)) {
           setNextDayName(dayResult.day.day_name);
           setNextDayId(dayResult.day.id);
           setTodayExercises(dayResult.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise)));
+        } else if (generationFailed) {
+          setNextDayName(null);
+          setNextDayId(null);
+          setTodayExercises([]);
         }
       }
 
@@ -386,6 +402,20 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         adjustedSummary={adjustedSummary}
         onRevert={originalExercises ? handleRevert : undefined}
       />
+
+      {programLoadError && (
+        <div style={{
+          border: '1px solid color-mix(in oklab, var(--accent), transparent 70%)',
+          background: 'color-mix(in oklab, var(--accent), transparent 94%)',
+          color: 'var(--ink)',
+          borderRadius: 14,
+          padding: '12px 14px',
+          fontSize: 13,
+          lineHeight: 1.5,
+        }}>
+          {programLoadError}
+        </div>
+      )}
 
       {todayExercises.length > 0 && !programComplete && <DashboardReplaceExerciseCard onClick={openReplaceModal} />}
 

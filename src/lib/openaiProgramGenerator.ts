@@ -46,6 +46,8 @@ export interface WeekSummary {
   exercise_stats: ExerciseStat[];
 }
 
+const generationInFlight = new Map<string, Promise<void>>();
+
 // ─── History summarization ────────────────────────────────────
 
 export function summarizeWeekData(
@@ -451,4 +453,36 @@ export async function generateAndSaveNextWeek(
       week_num: nextWeekNum,
     }))
   );
+}
+
+export async function ensureWeekGenerated(
+  userId: string,
+  programId: string,
+  weekNum: number
+): Promise<boolean> {
+  if (weekNum <= 1) return false;
+
+  const generationKey = `${programId}:${weekNum}`;
+  const { count: existing } = await supabase
+    .from('program_days')
+    .select('id', { count: 'exact', head: true })
+    .eq('program_id', programId)
+    .eq('week_num', weekNum);
+
+  if ((existing ?? 0) > 0) return false;
+
+  const inFlight = generationInFlight.get(generationKey);
+  if (inFlight) {
+    await inFlight;
+    return true;
+  }
+
+  const generationPromise = generateAndSaveNextWeek(userId, programId, weekNum)
+    .finally(() => {
+      generationInFlight.delete(generationKey);
+    });
+
+  generationInFlight.set(generationKey, generationPromise);
+  await generationPromise;
+  return true;
 }

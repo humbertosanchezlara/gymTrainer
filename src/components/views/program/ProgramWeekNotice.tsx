@@ -5,9 +5,27 @@ interface ProgramWeekNoticeProps {
   selectedWeek: number;
   sourceWeek: number | null;
   block: BlockParams;
+  generationError?: string | null;
 }
 
-export function ProgramWeekNotice({ generatedWeek, selectedWeek, sourceWeek, block }: ProgramWeekNoticeProps) {
+export function ProgramWeekNotice({ generatedWeek, selectedWeek, sourceWeek, block, generationError }: ProgramWeekNoticeProps) {
+  if (generationError) {
+    return (
+      <div style={{
+        background: 'color-mix(in oklab, var(--accent), transparent 94%)',
+        border: '1px solid color-mix(in oklab, var(--accent), transparent 70%)',
+        borderRadius: 14,
+        padding: '14px 16px',
+        marginBottom: 16,
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>No se pudo generar la semana {selectedWeek}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+          {generationError}
+        </div>
+      </div>
+    );
+  }
+
   if (!generatedWeek) {
     return (
       <div style={{

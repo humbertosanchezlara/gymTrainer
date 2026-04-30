@@ -8,7 +8,7 @@ import ExerciseDetailModal from '../ExerciseDetailModal';
 import {
   Loader2,
 } from 'lucide-react';
-import { generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
+import { ensureWeekGenerated, generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { Tab } from '../MainShell';
 import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
@@ -133,13 +133,14 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
 
   useEffect(() => {
     if (!user) return;
+    const userId = user.id;
 
     const loadSession = async () => {
       setSaveError(null);
       const { data: exData } = await supabase
         .from('exercises')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .neq('status', 'NO')
         .order('category');
       if (exData) setExercises(exData);
@@ -147,7 +148,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
       const { data: program } = await supabase
         .from('programs')
         .select('id, total_days, total_weeks, created_at')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -158,7 +159,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
       }
 
       setHasProgram(true);
-      const progress = await fetchProgramProgressState(user.id, program);
+      const progress = await fetchProgramProgressState(userId, program);
 
       let daysSinceLast = 0;
       if (progress.lastSessionDate) {
@@ -198,14 +199,14 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
       }
 
       // Check if there's a saved draft for this same day/week
-      const savedDraft = localStorage.getItem(sessionDraftKey(user.id));
+      const savedDraft = localStorage.getItem(sessionDraftKey(userId));
       if (savedDraft) {
         try {
           const draft: SessionDraft = JSON.parse(savedDraft);
           if (draft.dayNum === currentDayNum && draft.weekNum === currentWeek) {
             if (!Array.isArray(draft.logs)) {
               // Draft is corrupt (non-array logs from old code) — discard it
-              localStorage.removeItem(sessionDraftKey(user.id));
+              localStorage.removeItem(sessionDraftKey(userId));
             } else {
               setSessionName(draft.sessionName);
               setLogs(draft.logs);
@@ -215,13 +216,21 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
             }
           }
         } catch {
-          localStorage.removeItem(sessionDraftKey(user.id));
+          localStorage.removeItem(sessionDraftKey(userId));
         }
       }
 
+      let generationFailed = false;
+      try {
+        await ensureWeekGenerated(userId, program.id, currentWeek);
+      } catch (error) {
+        generationFailed = true;
+        console.error('[SessionView] Week generation failed:', error);
+        setSaveError(`No se pudo generar la semana ${currentWeek}. Bloqueamos la sesión para evitar que entrenes con la plantilla de la semana 1.`);
+      }
       const dayResult = await fetchProgramDayForWeekOrFallback(program.id, currentWeek, currentDayNum);
 
-      if (dayResult.day) {
+      if (dayResult.day && !(generationFailed && dayResult.isFallback && dayResult.sourceWeek !== currentWeek)) {
         setSessionName(dayResult.day.day_name);
 
         const { data: wwData } = await supabase
@@ -276,6 +285,9 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         });
 
         setLogs(preFilled);
+      } else if (generationFailed) {
+        setSessionName('');
+        setLogs([]);
       }
 
       setLoadingProgram(false);

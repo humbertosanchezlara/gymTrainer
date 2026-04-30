@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { ensureWeekGenerated } from '../lib/openaiProgramGenerator';
 import { supabase } from '../lib/supabase';
 import type { Program, ProgramDay } from '../types';
 import { BLOCKS } from '../engine/programGenerator';
@@ -23,6 +24,7 @@ export default function ProgramView() {
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [generatedWeek, setGeneratedWeek] = useState(true);
   const [sourceWeek, setSourceWeek] = useState<number | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -55,17 +57,30 @@ export default function ProgramView() {
 
   useEffect(() => {
     if (!program) return;
+    const userId = user?.id;
+    if (!userId) return;
     let cancelled = false;
 
     const loadWeek = async () => {
       setLoading(true);
+      setGenerationError(null);
       try {
         if (selectedWeek === currentWeek) {
+          let generationFailed = false;
+          try {
+            await ensureWeekGenerated(userId, program.id, selectedWeek);
+          } catch (error) {
+            generationFailed = true;
+            console.error('[ProgramView] Week generation failed:', error);
+            setGenerationError(`Forge no pudo preparar el detalle de la semana ${selectedWeek}. Intenta recargar en unos segundos.`);
+          }
+
           const result = await fetchProgramWeekDaysOrFallback(program.id, selectedWeek);
           if (cancelled) return;
-          setDays(result.days);
-          setGeneratedWeek(result.days.length > 0);
-          setSourceWeek(result.sourceWeek);
+          const hasUnsafeFallback = generationFailed && result.isFallback && result.sourceWeek !== selectedWeek;
+          setDays(hasUnsafeFallback ? [] : result.days);
+          setGeneratedWeek(hasUnsafeFallback ? false : result.days.length > 0);
+          setSourceWeek(hasUnsafeFallback ? null : result.sourceWeek);
         } else {
           const explicitDays = await fetchProgramWeekDays(program.id, selectedWeek);
           if (cancelled) return;
@@ -124,7 +139,7 @@ export default function ProgramView() {
 
       <ProgramContextBadge selectedWeek={selectedWeek} totalWeeks={totalWeeks} block={block} />
       <ProgramWeekPicker totalWeeks={totalWeeks} currentWeek={currentWeek} selectedWeek={selectedWeek} onSelect={setSelectedWeek} />
-      <ProgramWeekNotice generatedWeek={generatedWeek} selectedWeek={selectedWeek} sourceWeek={sourceWeek} block={block} />
+      <ProgramWeekNotice generatedWeek={generatedWeek} selectedWeek={selectedWeek} sourceWeek={sourceWeek} block={block} generationError={generationError} />
       <ProgramRpeInfo block={block} showRPE={showRPE} onToggle={() => setShowRPE((value) => !value)} />
       {generatedWeek && (
         <ProgramDayCards
