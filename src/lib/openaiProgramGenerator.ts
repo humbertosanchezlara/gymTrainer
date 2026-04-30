@@ -300,7 +300,8 @@ export async function generateWeekWithAI(params: {
     bmi,
     profile.session_minutes,
     profile.gender,
-    cycleNumber
+    cycleNumber,
+    weekNum
   );
 
   // For weeks 2+: apply current working weights and clear calibration flag

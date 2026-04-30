@@ -20,6 +20,7 @@ import type { Tab } from '../MainShell';
 import { HeroSession } from '../forge/HeroSession';
 import { AdjustWithAI } from '../forge/AdjustWithAI';
 import { ContextCards } from '../forge/ContextCards';
+import { fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -58,13 +59,6 @@ interface DashboardViewProps {
   onStartTravel: (d: SessionLogEntry[], context: TravelDayContext) => void;
 }
 
-function getBlockInfo(week: number): string {
-  if (week <= 4) return 'Volumen';
-  if (week <= 8) return 'Intensidad';
-  if (week <= 11) return 'Pico';
-  return 'Descarga';
-}
-
 function estimateDuration(exerciseCount: number): string {
   const min = exerciseCount * 7;
   const max = exerciseCount * 10;
@@ -87,6 +81,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [adjusting, setAdjusting] = useState(false);
   const [adjustedSummary, setAdjustedSummary] = useState<string | null>(null);
   const [originalExercises, setOriginalExercises] = useState<ProgramDayExercise[] | null>(null);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
 
   const [showTravelSetup, setShowTravelSetup] = useState(false);
   const [travelDays, setTravelDays] = useState(3);
@@ -104,26 +99,19 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       if (sRes.data) setSessions(sRes.data);
 
       if (pRes.data) {
-        const { count: totalSessions } = await supabase
-          .from('sessions')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .gte('created_at', pRes.data.created_at)
-          .not('block_num', 'is', null);
-
-        const sessCount = totalSessions ?? 0;
-        const totalProgramSessions = pRes.data.total_days * (pRes.data.total_weeks ?? 12);
+        const progress = await fetchProgramProgressState(user.id, pRes.data);
+        const sessCount = progress.sessionCount;
         const weeksCompleted = Math.floor(sessCount / pRes.data.total_days);
         setCompletedWeeks(Math.min(weeksCompleted, pRes.data.total_weeks ?? 12));
 
-        if (sessCount >= totalProgramSessions) {
+        if (progress.programComplete) {
           setProgramComplete(true);
           setLoading(false);
           return;
         }
 
-        const weekNum = Math.floor(sessCount / pRes.data.total_days) + 1;
-        const dayNum = (sessCount % pRes.data.total_days) + 1;
+        const weekNum = progress.currentWeek;
+        const dayNum = progress.currentDay;
         setNextDayNum(dayNum);
 
         let { data: dayData } = await supabase
@@ -148,7 +136,9 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           setNextDayName(dayData.day_name);
           setNextDayId(dayData.id);
           const exArr = dayData.exercises;
-          if (Array.isArray(exArr)) setTodayExercises(exArr as ProgramDayExercise[]);
+          if (Array.isArray(exArr)) {
+            setTodayExercises(exArr.map((ex) => normalizeProgramDayExercise(ex as Record<string, unknown>)));
+          }
         }
       }
 
@@ -172,9 +162,12 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const handleAdjust = async () => {
     if (!adjustInput.trim() || !user) return;
     setAdjusting(true);
+    setAdjustError(null);
     const snapshot = [...todayExercises];
     try {
-      const exerciseNames = todayExercises.map(e => e.exercise_name || e.name || '').filter(Boolean);
+      const exerciseNames = todayExercises
+        .map((e) => e.exercise_name)
+        .filter((name): name is string => Boolean(name));
       const adjustments = await parseAdjustmentWithAI(adjustInput, exerciseNames);
 
       if (nextDayId) {
@@ -203,7 +196,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
               const target = adj.targetExerciseName.toLowerCase();
               const targetWords = target.split(/\s+/).filter(w => w.length > 2);
               const matchIdx = adjusted.findIndex((ex) => {
-                const exName = (((ex.exercise_name as string) ?? (ex.name as string)) ?? '').toLowerCase();
+                const exName = ((ex.exercise_name as string) ?? '').toLowerCase();
                 return targetWords.some(w => exName.includes(w)) || exName.includes(target);
               });
               if (matchIdx !== -1) {
@@ -213,14 +206,14 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
                   .eq('user_id', user.id).in('status', ['YES', 'SUB']).eq('category', matchedEx.category).neq('id', matchedEx.exercise_id);
                 const substitute = candidates?.find(c => !currentIds.has(c.id));
                 if (substitute) {
-                  adjusted[matchIdx] = { ...matchedEx, exercise_id: substitute.id, exercise_name: substitute.name, name: substitute.name, notes: 'Sustituido por solicitud' };
+                  adjusted[matchIdx] = { ...matchedEx, exercise_id: substitute.id, exercise_name: substitute.name, notes: 'Sustituido por solicitud' };
                 }
               }
             }
           }
 
           await supabase.from('program_days').update({ exercises: adjusted }).eq('id', dayData.id);
-          setTodayExercises(adjusted as ProgramDayExercise[]);
+          setTodayExercises(adjusted.map((ex) => normalizeProgramDayExercise(ex as Record<string, unknown>)));
           setOriginalExercises(snapshot);
           setAdjustedSummary(adjustments[0]?.details ?? 'Sesión ajustada según tu solicitud.');
         }
@@ -229,6 +222,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       setAdjustInput('');
     } catch (err) {
       console.error('[handleAdjust] Error:', err);
+      setAdjustError('No se pudieron aplicar los ajustes. Intenta de nuevo.');
       toast.error('No se pudieron aplicar los ajustes. Intenta de nuevo.');
     } finally {
       setAdjusting(false);
@@ -293,7 +287,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   };
 
   const weekNum = completedWeeks + 1;
-  const blockName = getBlockInfo(weekNum);
+  const blockName = weekNum <= 4 ? 'Volumen' : weekNum <= 8 ? 'Intensidad' : weekNum <= 11 ? 'Pico' : 'Descarga';
   const weeklyCompleted = Math.min(nextDayNum ? nextDayNum - 1 : 0, 7);
 
   if (loading) {
@@ -351,6 +345,18 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         onSubmit={handleAdjust}
         loading={adjusting}
       />
+      {adjustError && (
+        <div style={{
+          border: '1px solid color-mix(in oklab, var(--accent), transparent 70%)',
+          background: 'color-mix(in oklab, var(--accent), transparent 94%)',
+          color: 'var(--ink)',
+          borderRadius: 14,
+          padding: '12px 14px',
+          fontSize: 13,
+        }}>
+          {adjustError}
+        </div>
+      )}
 
       {/* Travel mode */}
       <button

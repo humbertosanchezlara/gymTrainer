@@ -12,6 +12,7 @@ import {
 import { generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { Tab } from '../MainShell';
+import { fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
 
 // ─── Weight unit helpers ───────────────────────────────────
 const KG_TO_LBS = 2.20462;
@@ -113,13 +114,6 @@ function sessionDraftKey(userId: string) {
   return `session_draft_${userId}`;
 }
 
-function getBlockInfo(week: number): { blockNum: number; blockName: string } {
-  if (week <= 4) return { blockNum: 1, blockName: 'Volumen' };
-  if (week <= 8) return { blockNum: 2, blockName: 'Intensidad' };
-  if (week <= 11) return { blockNum: 3, blockName: 'Pico' };
-  return { blockNum: 4, blockName: 'Descarga' };
-}
-
 function getRestLabel(rpe: number): string {
   if (rpe >= 8) return '3–5 min';
   if (rpe >= 6) return '2–3 min';
@@ -192,6 +186,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
   const [programId, setProgramId] = useState<string | null>(null);
   const [totalDays, setTotalDays] = useState<number>(0);
   const [currentSessCount, setCurrentSessCount] = useState<number>(0);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -205,6 +200,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
     if (!user) return;
 
     const loadSession = async () => {
+      setSaveError(null);
       const { data: exData } = await supabase
         .from('exercises')
         .select('*')
@@ -227,35 +223,19 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
       }
 
       setHasProgram(true);
-
-      const { count: totalSessions } = await supabase
-        .from('sessions')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', program.created_at)
-        .not('block_num', 'is', null);
-
-      const { data: lastGymSession } = await supabase
-        .from('sessions')
-        .select('date')
-        .eq('user_id', user.id)
-        .gte('created_at', program.created_at)
-        .not('block_num', 'is', null)
-        .order('date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const progress = await fetchProgramProgressState(user.id, program);
 
       let daysSinceLast = 0;
-      if (lastGymSession) {
-        const lastDate = new Date(lastGymSession.date);
+      if (progress.lastSessionDate) {
+        const lastDate = new Date(progress.lastSessionDate);
         const today = new Date();
         daysSinceLast = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 3600 * 24));
       }
 
-      const sessCount = totalSessions ?? 0;
-      const currentDayNum = (sessCount % program.total_days) + 1;
-      const currentWeek = Math.floor(sessCount / program.total_days) + 1;
-      const { blockNum: bNum, blockName: bName } = getBlockInfo(currentWeek);
+      const sessCount = progress.sessionCount;
+      const currentDayNum = progress.currentDay;
+      const currentWeek = progress.currentWeek;
+      const { blockNum: bNum, blockName: bName } = progress;
 
       setDayNum(currentDayNum);
       setWeekNum(currentWeek);
@@ -343,10 +323,20 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
           setDeloadApplied({ days: daysSinceLast, percentage: Math.round((1 - penaltyScale) * 100) });
         }
 
-        const dayExercises = (Array.isArray(programDay.exercises) ? programDay.exercises : []) as Array<Record<string, unknown>>;
+        const dayExercises: Array<{
+          exercise_id: string;
+          exercise_name: string;
+          sets: number;
+          reps_min: number;
+          reps_max: number;
+          weight: number;
+          rpe: number;
+        }> = (Array.isArray(programDay.exercises) ? programDay.exercises : []).map((ex: unknown) =>
+          normalizeProgramDayExercise(ex as Record<string, unknown>)
+        );
         const preFilled: SessionLogEntry[] = dayExercises.map((ex) => {
-          let currentWeight = weightMap.get(ex.exercise_id as string) ?? (ex.weight as number) ?? 0;
-          let rpe = (ex.rpe as number) || 7;
+          let currentWeight = weightMap.get(ex.exercise_id) ?? ex.weight ?? 0;
+          let rpe = ex.rpe || 7;
 
           if (applyPenalty && currentWeight > 0) {
             currentWeight = Math.round((currentWeight * penaltyScale) / 2.5) * 2.5;
@@ -354,16 +344,16 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
           }
 
           return {
-            exercise_id: ex.exercise_id as string,
-            exercise_name: (ex.exercise_name as string) || '—',
-            sets: ex.sets as number,
-            reps_per_set: (ex.reps_min as number) ?? 8,
+            exercise_id: ex.exercise_id,
+            exercise_name: ex.exercise_name,
+            sets: ex.sets,
+            reps_per_set: ex.reps_min ?? 8,
             weight: currentWeight,
             rpe,
             notes: applyPenalty && currentWeight > 0 ? 'Carga reducida (Readaptación)' : '',
-            target_reps_min: ex.reps_min as number | undefined,
-            target_reps_max: ex.reps_max as number | undefined,
-            target_rpe: ex.rpe as number | undefined,
+            target_reps_min: ex.reps_min,
+            target_reps_max: ex.reps_max,
+            target_rpe: ex.rpe,
           };
         });
 
@@ -401,63 +391,73 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
   const handleSave = async () => {
     if (!user || !sessionName || logs.length === 0) return;
     setSaving(true);
+    setSaveError(null);
 
-    const { data: session, error: sErr } = await supabase
-      .from('sessions')
-      .insert({
-        user_id: user.id,
-        name: sessionName,
-        week_num: weekNum === 0 ? null : weekNum,
-        block_num: blockNum === 0 ? null : blockNum,
-      })
-      .select()
-      .single();
+    try {
+      const { data: session, error: sErr } = await supabase
+        .from('sessions')
+        .insert({
+          user_id: user.id,
+          name: sessionName,
+          week_num: weekNum === 0 ? null : weekNum,
+          block_num: blockNum === 0 ? null : blockNum,
+        })
+        .select()
+        .single();
 
-    if (sErr || !session) { setSaving(false); return; }
+      if (sErr || !session) throw sErr ?? new Error('No se pudo crear la sesión');
 
-    const logRows = logs.filter(l => l.exercise_id).map(l => ({
-      session_id: session.id,
-      exercise_id: l.exercise_id,
-      sets: l.sets,
-      reps_per_set: l.reps_per_set,
-      weight: l.weight,
-      rpe: l.rpe || null,
-      notes: l.notes || null,
-    }));
+      const logRows = logs.filter(l => l.exercise_id).map(l => ({
+        session_id: session.id,
+        exercise_id: l.exercise_id,
+        sets: l.sets,
+        reps_per_set: l.reps_per_set,
+        weight: l.weight,
+        rpe: l.rpe || null,
+        notes: l.notes || null,
+      }));
 
-    await supabase.from('session_logs').insert(logRows);
-
-    const progressions: ProgressionResult[] = [];
-    for (const l of logs.filter(l => l.exercise_id && l.weight > 0)) {
-      const result = computeProgression(l);
-      progressions.push(result);
-      await supabase.from('working_weights').upsert(
-        { user_id: user.id, exercise_id: l.exercise_id, weight: result.next_weight, updated_at: new Date().toISOString() },
-        { onConflict: 'user_id,exercise_id' }
-      );
-    }
-
-    const notable = progressions.filter(r => r.action !== 'keep');
-    setProgressionResults(notable);
-
-    localStorage.removeItem(sessionDraftKey(user.id));
-    onClearTravel();
-    setSaving(false);
-    setSaved(true);
-
-    // Background: generate next week's program after completing the last session of this week
-    if (programId && totalDays > 0 && !travelDraft && weekNum > 0) {
-      const sessAfter = currentSessCount + 1;
-      if (sessAfter % totalDays === 0) {
-        const nextWeekNum = Math.floor(sessAfter / totalDays) + 1;
-        generateAndSaveNextWeek(user.id, programId, nextWeekNum).catch(err => {
-          console.error('[background] Next week generation failed:', err);
-        });
+      if (logRows.length > 0) {
+        const { error: logErr } = await supabase.from('session_logs').insert(logRows);
+        if (logErr) throw logErr;
       }
-    }
 
-    toast.success('Sesión guardada correctamente');
-    setTimeout(() => { onNavigate('dashboard'); }, notable.length > 0 ? 4000 : 1500);
+      const progressions: ProgressionResult[] = [];
+      for (const l of logs.filter(l => l.exercise_id && l.weight > 0)) {
+        const result = computeProgression(l);
+        progressions.push(result);
+        const { error: wwErr } = await supabase.from('working_weights').upsert(
+          { user_id: user.id, exercise_id: l.exercise_id, weight: result.next_weight, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id,exercise_id' }
+        );
+        if (wwErr) throw wwErr;
+      }
+
+      const notable = progressions.filter(r => r.action !== 'keep');
+      setProgressionResults(notable);
+
+      localStorage.removeItem(sessionDraftKey(user.id));
+      onClearTravel();
+      setSaving(false);
+      setSaved(true);
+
+      if (programId && totalDays > 0 && !travelDraft && weekNum > 0) {
+        const sessAfter = currentSessCount + 1;
+        if (sessAfter % totalDays === 0) {
+          const nextWeekNum = Math.floor(sessAfter / totalDays) + 1;
+          generateAndSaveNextWeek(user.id, programId, nextWeekNum).catch(err => {
+            console.error('[background] Next week generation failed:', err);
+          });
+        }
+      }
+
+      toast.success('Sesión guardada correctamente');
+      setTimeout(() => { onNavigate('dashboard'); }, notable.length > 0 ? 4000 : 1500);
+    } catch (err) {
+      console.error('[handleSave] Error:', err);
+      setSaveError('No se pudo guardar la sesión. Intenta nuevamente.');
+      setSaving(false);
+    }
   };
 
   // ─── Loading ───────────────────────────────────────────────
@@ -620,6 +620,19 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
                 Cargas reducidas {deloadApplied.percentage}% — RPE objetivo también bajó.
               </div>
             </div>
+          </div>
+        )}
+
+        {saveError && (
+          <div style={{
+            border: '1px solid color-mix(in oklab, var(--accent), transparent 70%)',
+            background: 'color-mix(in oklab, var(--accent), transparent 94%)',
+            borderRadius: 12,
+            padding: '12px 16px',
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}>
+            {saveError}
           </div>
         )}
 
