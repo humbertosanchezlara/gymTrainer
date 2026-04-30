@@ -220,7 +220,7 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
                   const newWeight = Math.round(
                     estimateWeight(substitute.name, Number(profile?.bodyweight) || 75, profile?.training_experience ?? 'intermediate', profile?.gender ?? 'male') / 2.5
                   ) * 2.5;
-                  return { ...ex, exercise_id: substitute.id, exercise_name: substitute.name, name: substitute.name, weight: newWeight };
+                  return { ...ex, exercise_id: substitute.id, exercise_name: substitute.name, weight: newWeight };
                 }
               }
               return ex;

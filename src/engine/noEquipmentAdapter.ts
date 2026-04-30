@@ -112,7 +112,7 @@ function slotToProgramExercise(
 
   const { sets, reps_min, reps_max, notesPrefix } = schemeToProgramFields(slot.scheme);
 
-  const restNote = slot.restSeconds > 0 ? `${slot.restSeconds}s rest` : '';
+  const restNote = slot.restSeconds > 0 ? `${slot.restSeconds}s descanso` : '';
   const pairedNote = slot.pairedWith ? 'superset' : '';
   const extraNotes = [notesPrefix, slot.notes, restNote, pairedNote]
     .filter(Boolean)

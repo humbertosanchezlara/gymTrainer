@@ -65,6 +65,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -135,6 +136,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
   const handleRegenerateFinish = async () => {
     if (!user) return;
     setSaving(true);
+    setErrorMessage(null);
     try {
       await supabase.from('profiles').update({
         goal, equipment_access: equipment, schedule_days: scheduleDays,
@@ -208,6 +210,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
       onComplete();
     } catch (err) {
       console.error('Program regeneration failed:', err);
+      setErrorMessage('No se pudo regenerar el programa. Intenta nuevamente.');
       setSaving(false);
     }
   };
@@ -216,6 +219,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
   const handleFinish = async () => {
     if (!user) return;
     setSaving(true);
+    setErrorMessage(null);
     try {
       await supabase.from('profiles').upsert({
         id: user.id, name, gender, bodyweight, height,
@@ -271,6 +275,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
       onComplete();
     } catch (err) {
       console.error('Onboarding failed:', err);
+      setErrorMessage('No se pudo generar tu programa. Intenta nuevamente.');
       setSaving(false);
     }
   };
@@ -527,6 +532,20 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
       </main>
 
       {/* Footer navigation */}
+      {errorMessage && (
+        <div style={{ padding: '0 32px 16px' }}>
+          <div style={{
+            border: '1px solid color-mix(in oklab, var(--accent), transparent 70%)',
+            background: 'color-mix(in oklab, var(--accent), transparent 94%)',
+            borderRadius: 12,
+            padding: '12px 14px',
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}>
+            {errorMessage}
+          </div>
+        </div>
+      )}
       <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 32px', borderTop: '1px solid var(--rule)' }}>
         <button
           onClick={prev}

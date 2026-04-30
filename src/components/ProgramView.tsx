@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import type { Program, ProgramDay, ProgramDayExercise } from '../types';
 import { BLOCKS } from '../engine/programGenerator';
 import { Loader2, ChevronDown } from 'lucide-react';
+import { fetchProgramProgressState, normalizeProgramDayExercise } from '../utils/programState';
 
 export default function ProgramView() {
   const { user } = useAuth();
@@ -18,20 +19,6 @@ export default function ProgramView() {
     if (!user) return;
     let mounted = true;
 
-    supabase
-      .from('sessions')
-      .select('week_num')
-      .eq('user_id', user.id)
-      .order('week_num', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data: sessionData }) => {
-        if (!mounted) return;
-        if (sessionData?.week_num) {
-          setCurrentWeek(sessionData.week_num);
-        }
-      });
-
     Promise.resolve(
       supabase
         .from('programs')
@@ -44,15 +31,47 @@ export default function ProgramView() {
       if (!mounted) return;
       if (data) {
         setProgram(data);
+        fetchProgramProgressState(user.id, data).then((progress) => {
+          if (mounted) setCurrentWeek(progress.currentWeek);
+        });
         Promise.resolve(
           supabase
             .from('program_days')
             .select('*')
             .eq('program_id', data.id)
+            .eq('week_num', currentWeek)
             .order('day_number')
         ).then(({ data: dayData }) => {
           if (!mounted) return;
-          if (dayData) setDays(dayData);
+          if (dayData && dayData.length > 0) {
+            setDays(dayData.map((day) => ({
+              ...day,
+              exercises: (Array.isArray(day.exercises) ? day.exercises : []).map((ex: unknown) =>
+                normalizeProgramDayExercise(ex as ProgramDayExercise)
+              ),
+            })));
+          } else {
+            Promise.resolve(
+              supabase
+                .from('program_days')
+                .select('*')
+                .eq('program_id', data.id)
+                .eq('week_num', 1)
+                .order('day_number')
+            ).then(({ data: fallbackDays }) => {
+              if (!mounted) return;
+              if (fallbackDays) {
+                setDays(fallbackDays.map((day) => ({
+                  ...day,
+                  exercises: (Array.isArray(day.exercises) ? day.exercises : []).map((ex: unknown) =>
+                    normalizeProgramDayExercise(ex as ProgramDayExercise)
+                  ),
+                })));
+              }
+              setLoading(false);
+            }).catch(() => { if (mounted) setLoading(false); });
+            return;
+          }
           setLoading(false);
         }).catch(() => { if (mounted) setLoading(false); });
       } else {
@@ -61,7 +80,7 @@ export default function ProgramView() {
     }).catch(() => { if (mounted) setLoading(false); });
 
     return () => { mounted = false; };
-  }, [user]);
+  }, [user, currentWeek]);
 
   if (loading) {
     return (
