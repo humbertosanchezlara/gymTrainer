@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Trash2 } from 'lucide-react';
 
 interface LibrarySettingsSheetProps {
@@ -17,14 +19,34 @@ export function LibrarySettingsSheet({
   onCancelConfirm,
   onDeleteProgram,
 }: LibrarySettingsSheetProps) {
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.4)',
+        zIndex: 200,
+        display: 'flex',
+        alignItems: 'flex-end',
+      }}
+    >
       <div
         onClick={e => e.stopPropagation()}
         style={{
           width: '100%', background: 'var(--paper)', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-          padding: '10px 0 32px', boxShadow: '0 -16px 40px -12px rgba(0,0,0,0.25)',
+          padding: '10px 0 calc(32px + env(safe-area-inset-bottom, 0px))', boxShadow: '0 -16px 40px -12px rgba(0,0,0,0.25)',
           maxWidth: 800, margin: '0 auto',
+          maxHeight: 'min(72dvh, 560px)',
+          overflowY: 'auto',
         }}
       >
         <div style={{ width: 42, height: 4, borderRadius: 2, background: 'var(--rule)', margin: '6px auto 18px' }} />
@@ -81,6 +103,7 @@ export function LibrarySettingsSheet({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -22,12 +22,11 @@ const ToastContext = createContext<ToastContextType | null>(null);
 const MAX_TOASTS = 4;
 const DEFAULT_DURATION = 3500;
 
-// ─── Toast styling maps ───────────────────────────────────
-const TOAST_STYLES: Record<Toast['type'], string> = {
-  success: 'bg-primary-container text-on-primary-container',
-  error: 'bg-error-container text-on-error-container',
-  info: 'bg-surface-container text-on-surface',
-  warning: 'bg-amber-100 text-amber-900',
+const TOAST_ACCENTS: Record<Toast['type'], string> = {
+  success: 'var(--ok)',
+  error: 'var(--accent)',
+  info: 'var(--ink)',
+  warning: '#9A6A1F',
 };
 
 const TOAST_ICONS: Record<Toast['type'], React.ReactNode> = {
@@ -39,6 +38,8 @@ const TOAST_ICONS: Record<Toast['type'], React.ReactNode> = {
 
 // ─── Individual Toast ─────────────────────────────────────
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
+  const accentColor = TOAST_ACCENTS[toast.type];
+
   return (
     <motion.div
       layout
@@ -46,14 +47,28 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 300, opacity: 0 }}
       transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-      className={`flex items-start gap-3 rounded-xl px-4 py-3.5 shadow-md min-w-[280px] max-w-[360px] ${TOAST_STYLES[toast.type]}`}
+      className="flex items-start gap-3 rounded-xl px-4 py-3.5 shadow-lg min-w-[280px] max-w-[360px] border"
+      style={{
+        background: 'var(--paper-2)',
+        borderColor: 'var(--rule)',
+        color: 'var(--ink)',
+        boxShadow: '0 18px 42px color-mix(in oklab, var(--ink), transparent 88%)',
+      }}
     >
-      {TOAST_ICONS[toast.type]}
+      <span
+        className="shrink-0 rounded-full p-1"
+        style={{
+          color: accentColor,
+          background: `color-mix(in oklab, ${accentColor}, transparent 86%)`,
+        }}
+      >
+        {TOAST_ICONS[toast.type]}
+      </span>
       <p className="flex-1 text-sm font-body font-medium leading-snug">{toast.message}</p>
       <button
         onClick={() => onDismiss(toast.id)}
         aria-label="Cerrar notificación"
-        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+        className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"
       >
         <X size={15} />
       </button>

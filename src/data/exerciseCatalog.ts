@@ -269,6 +269,11 @@ export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
       'Cuélgate de la barra con agarre prono (palmas al frente) ligeramente más ancho que los hombros. Tira del cuerpo hacia arriba hasta que la barbilla supere la barra. Baja controladamente hasta extender los brazos.',
     images: [`${IMG}/Pullups/0.jpg`, `${IMG}/Pullups/1.jpg`],
   },
+  'Assisted Pull Up': {
+    instructions:
+      'Ajusta la asistencia de la máquina para que puedas completar el rango completo con control. Apoya rodillas o pies en la plataforma, cuélgate con agarre prono y tira el pecho hacia la barra. Baja lento hasta extender los brazos sin perder tensión en dorsales.',
+    images: [],
+  },
   'Weighted Pull Up': {
     instructions:
       'Coloca peso adicional con cinturón o mancuerna entre los pies. Realiza una dominada completa subiendo la barbilla por encima de la barra. Baja controladamente.',
@@ -495,6 +500,8 @@ export const ES_TO_EN: Record<string, string> = {
   'Remo Meadows': 'Meadows Row',
   'Remo Pendlay': 'Pendlay Row',
   'Dominadas (Peso Corporal)': 'Pull Up',
+  'Dominadas': 'Pull Up',
+  'Dominadas con Apoyo': 'Assisted Pull Up',
   'Dominadas con Lastre': 'Weighted Pull Up',
   'Dominadas Supinación': 'Chin Up',
   'Jalón al Pecho (Barra)': 'Lat Pulldown (Bar)',
