@@ -2,6 +2,11 @@ import type { Exercise } from '../types';
 import { getSplitTemplate, type ExerciseSlot } from './splitTemplates';
 import { estimateWeight } from './weightEstimator';
 import { isExerciseEnabled } from '../utils/programState';
+import {
+  exerciseSuitabilityScore,
+  isExerciseSuitableForProfile,
+  type ExerciseSuitabilityProfile,
+} from './exerciseSuitability';
 
 // ─── Block Periodization Parameters ──────────────────────
 export interface BlockParams {
@@ -86,17 +91,23 @@ export interface GeneratedProgram {
 function resolveExercise(
   slot: ExerciseSlot,
   exercises: Exercise[],
-  usedIds: Set<string>
+  usedIds: Set<string>,
+  profile: ExerciseSuitabilityProfile,
 ): Exercise | null {
   const available = exercises.filter(
     (e) => e.category === slot.category && isExerciseEnabled(e.status) && !usedIds.has(e.id)
   );
+  const bySuitability = (a: Exercise, b: Exercise) =>
+    exerciseSuitabilityScore(b, profile) - exerciseSuitabilityScore(a, profile);
+  const suitableAvailable = available
+    .filter((exercise) => isExerciseSuitableForProfile(exercise, profile))
+    .sort(bySuitability);
 
-  if (available.length === 0) {
+  if (suitableAvailable.length === 0) {
     // Fallback: allow already-used exercises in this category
     const fallback = exercises.filter(
-      (e) => e.category === slot.category && isExerciseEnabled(e.status)
-    );
+      (e) => e.category === slot.category && isExerciseEnabled(e.status) && isExerciseSuitableForProfile(e, profile)
+    ).sort(bySuitability);
     if (fallback.length === 0) return null;
     // If preferred, try to find it
     if (slot.preferredExercise) {
@@ -108,11 +119,11 @@ function resolveExercise(
 
   // Try preferred first
   if (slot.preferredExercise) {
-    const pref = available.find((e) => e.name === slot.preferredExercise);
+    const pref = suitableAvailable.find((e) => e.name === slot.preferredExercise);
     if (pref) return pref;
   }
 
-  return available[0];
+  return suitableAvailable[0];
 }
 
 // ─── BMI Adjustments ────────────────────────────────────
@@ -316,7 +327,7 @@ export function generateProgram(
     const slots = dayTemplate.slots.slice(0, maxExercises);
 
     for (const slot of slots) {
-      const exercise = resolveExercise(slot, exercises, usedIds);
+      const exercise = resolveExercise(slot, exercises, usedIds, { gender, training_experience: experience });
       if (!exercise) continue;
 
       usedIds.add(exercise.id);

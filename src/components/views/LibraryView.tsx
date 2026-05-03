@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import type { Exercise } from '../../types';
 import { DEFAULT_EXERCISES, type MovementCategory, CATEGORY_LABELS } from '../../types';
 import { estimateWeight } from '../../engine/weightEstimator';
+import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
 import AddExerciseModal from '../AddExerciseModal';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { isExerciseEnabled, normalizeProgramDayExercise } from '../../utils/programState';
@@ -191,7 +192,9 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
               if (!exInfo || !isExerciseEnabled(exInfo.status)) {
                 const category = ex.category || exInfo?.category;
                 const candidates = category ? (yesByCategory.get(category) ?? []) : [];
-                const substitute = candidates.find(s => !usedIds.has(s.id));
+                const substitute = candidates
+                  .filter(s => !usedIds.has(s.id) && isExerciseSuitableForProfile(s, profile))
+                  .sort((a, b) => exerciseSuitabilityScore(b, profile) - exerciseSuitabilityScore(a, profile))[0];
                 if (substitute) {
                   usedIds.delete(exId);
                   usedIds.add(substitute.id);

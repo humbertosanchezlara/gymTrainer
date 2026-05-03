@@ -85,7 +85,7 @@ export default function Modal({
   const modal = (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-4 sm:py-6">
           {/* Backdrop */}
           <motion.div
             key="backdrop"
@@ -109,7 +109,7 @@ export default function Modal({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-            className={`relative w-full ${SIZE_CLASSES[size]} card-elevated rounded-2xl p-6 z-10`}
+            className={`relative z-10 flex max-h-[calc(100dvh-2rem)] w-full ${SIZE_CLASSES[size]} flex-col overflow-hidden card-elevated rounded-2xl p-6`}
           >
             {/* Close button */}
             <button
@@ -141,11 +141,11 @@ export default function Modal({
             )}
 
             {/* Body */}
-            {children && <div className="mt-5">{children}</div>}
+            {children && <div className="mt-5 min-h-0 overflow-y-auto pr-1 -mr-1">{children}</div>}
 
             {/* Actions */}
             {actions && (
-              <div className="mt-6 flex items-center justify-end gap-3 flex-wrap">
+              <div className="mt-6 flex shrink-0 items-center justify-end gap-3 flex-wrap">
                 {actions}
               </div>
             )}

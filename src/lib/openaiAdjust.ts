@@ -10,6 +10,20 @@ export interface SessionAdjustment {
   details: string;
 }
 
+export interface SessionExerciseContext {
+  name: string;
+  category?: string;
+  role?: string;
+  sets?: number;
+  repsMin?: number;
+  repsMax?: number;
+}
+
+export interface SessionAdjustmentContext {
+  dayName?: string | null;
+  exercises: SessionExerciseContext[];
+}
+
 const SYSTEM_PROMPT = `Eres un entrenador personal experto. El usuario te describe su estado antes de entrenar y tú decides cómo ajustar la sesión.
 
 Responde SOLO con un array JSON de ajustes. Cada ajuste tiene esta forma:
@@ -28,22 +42,34 @@ Reglas:
 - Si hay fatiga moderada (5h sueño, "poco descansado"): weightScale=0.80, rpeDelta=-1
 - Si hay dolor o lesión: weightScale=0.70, rpeDelta=-2
 - Si hay poco tiempo: reduce_time con maxExercises según los minutos disponibles (minutos-5)/7 redondeado, mínimo 3
-- Si piden cambiar un ejercicio específico: swap_specific con targetExerciseName
-- Si falta equipamiento genérico: swap_exercise
+- Si piden cambiar un ejercicio específico: swap_specific con targetExerciseName. Usa el nombre más cercano dentro de la sesión actual; no inventes nombres.
+- Si falta equipamiento genérico y puedes inferir el ejercicio afectado: swap_specific con targetExerciseName.
+- Si falta equipamiento genérico pero no puedes inferir el ejercicio exacto: swap_exercise.
+- Tú solo eliges qué ejercicio actual se debe cambiar; la app elegirá el reemplazo con su ranking compatible por categoría, patrón del día e intención de la sesión.
 - Si el mensaje no encaja en nada claro: general con weightScale=0.90, rpeDelta=-1
 - Devuelve SOLO el array JSON, sin texto adicional.`;
 
 export async function parseAdjustmentWithAI(
   userMessage: string,
-  exerciseNames: string[],
+  context: SessionAdjustmentContext,
 ): Promise<SessionAdjustment[]> {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   if (!apiKey) throw new Error('VITE_OPENAI_API_KEY no configurada');
 
   const client = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
 
-  const contextLine = exerciseNames.length > 0
-    ? `\nEjercicios de la sesión de hoy: ${exerciseNames.join(', ')}`
+  const exerciseLines = context.exercises.map((exercise) => {
+    const meta = [
+      exercise.category,
+      exercise.role,
+      exercise.sets && exercise.repsMin ? `${exercise.sets}x${exercise.repsMin}${exercise.repsMax && exercise.repsMax !== exercise.repsMin ? `-${exercise.repsMax}` : ''}` : null,
+    ].filter(Boolean);
+
+    return meta.length > 0 ? `${exercise.name} (${meta.join(', ')})` : exercise.name;
+  });
+
+  const contextLine = exerciseLines.length > 0
+    ? `\nSesión de hoy${context.dayName ? `: ${context.dayName}` : ''}\nEjercicios:\n- ${exerciseLines.join('\n- ')}`
     : '';
 
   const resp = await client.chat.completions.create({

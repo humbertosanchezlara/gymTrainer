@@ -183,6 +183,7 @@ export const DEFAULT_EXERCISES: { name: string; category: MovementCategory }[] =
   { name: 'Remo Pendlay', category: 'PULL_HORIZONTAL' },
   // Jalón Vertical
   { name: 'Dominadas', category: 'PULL_VERTICAL' },
+  { name: 'Dominadas con Apoyo', category: 'PULL_VERTICAL' },
   { name: 'Dominadas con Lastre', category: 'PULL_VERTICAL' },
   { name: 'Dominadas Supinación', category: 'PULL_VERTICAL' },
   { name: 'Jalón al Pecho (Barra)', category: 'PULL_VERTICAL' },

@@ -28,6 +28,7 @@ import { DashboardTravelModeCard } from './dashboard/DashboardTravelModeCard';
 import { DashboardProgramLinkCard } from './dashboard/DashboardProgramLinkCard';
 import { DashboardTravelSetupModal } from './dashboard/DashboardTravelSetupModal';
 import { DashboardReplaceExerciseModal } from './dashboard/DashboardReplaceExerciseModal';
+import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -58,6 +59,18 @@ interface ProgramDayExercise {
   notes?: string;
 }
 
+interface ReplacementCandidate {
+  id: string;
+  name: string;
+  category: string;
+  rank: 1 | 2 | 3;
+  reason: string;
+}
+
+interface TrainingContext {
+  gender: string;
+  training_experience: string;
+}
 
 // ─── Component ────────────────────────────────────────────
 interface DashboardViewProps {
@@ -70,6 +83,122 @@ function estimateDuration(exerciseCount: number): string {
   const min = exerciseCount * 7;
   const max = exerciseCount * 10;
   return `${min}–${max} min`;
+}
+
+const PULL_CATEGORIES = ['PULL_VERTICAL', 'PULL_HORIZONTAL'];
+const PUSH_CATEGORIES = ['PUSH_HORIZONTAL', 'PUSH_VERTICAL'];
+const LEG_CATEGORIES = ['QUAD_DOMINANT', 'POSTERIOR_CHAIN', 'CALVES'];
+
+function normalizeText(value?: string | null): string {
+  return (value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function dayIncludesAny(todayExercises: ProgramDayExercise[], categories: string[]): boolean {
+  const categorySet = new Set(categories);
+  return todayExercises.some((exercise) => exercise.category && categorySet.has(exercise.category));
+}
+
+function inferReplacementCategories(
+  selected: ProgramDayExercise,
+  todayExercises: ProgramDayExercise[],
+  dayName: string | null,
+): string[] {
+  const selectedCategory = selected.category;
+  if (!selectedCategory) return [];
+
+  const normalizedDayName = normalizeText(dayName);
+  const looksLikePullDay = /pull|jalon|espalda|back/.test(normalizedDayName) || dayIncludesAny(todayExercises, PULL_CATEGORIES);
+  const looksLikePushDay = /push|empuje|pecho|hombro/.test(normalizedDayName) || dayIncludesAny(todayExercises, PUSH_CATEGORIES);
+  const looksLikeLegDay = /pierna|lower|leg|sentadilla/.test(normalizedDayName) || dayIncludesAny(todayExercises, LEG_CATEGORIES);
+
+  if (looksLikePullDay && LEG_CATEGORIES.includes(selectedCategory)) {
+    return PULL_CATEGORIES;
+  }
+
+  if (!looksLikePullDay && looksLikePushDay && LEG_CATEGORIES.includes(selectedCategory)) {
+    return PUSH_CATEGORIES;
+  }
+
+  if (
+    !looksLikePullDay
+    && !looksLikePushDay
+    && looksLikeLegDay
+    && [...PULL_CATEGORIES, ...PUSH_CATEGORIES].includes(selectedCategory)
+  ) {
+    return LEG_CATEGORIES;
+  }
+
+  return [selectedCategory];
+}
+
+function candidateNameScore(candidateName: string, selected: ProgramDayExercise, dayName: string | null): number {
+  const candidate = normalizeText(candidateName);
+  const selectedName = normalizeText(selected.exercise_name ?? selected.name);
+  const normalizedDayName = normalizeText(dayName);
+  let score = 0;
+
+  if (/jalon|dominada|pull/.test(candidate) && /jalon|pull|espalda|back/.test(normalizedDayName)) score += 16;
+  if (/remo/.test(candidate) && /espalda|back|pull/.test(normalizedDayName)) score += 12;
+  if (/press|banca|pecho/.test(candidate) && /push|empuje|pecho/.test(normalizedDayName)) score += 14;
+  if (/sentadilla|prensa|squat/.test(candidate) && /pierna|leg|lower/.test(normalizedDayName)) score += 14;
+  if (/peso muerto|rumano|curl femoral|hip thrust/.test(candidate) && /posterior|pierna|leg|lower/.test(normalizedDayName)) score += 12;
+
+  if (/barra/.test(candidate) && /barra/.test(selectedName)) score += 5;
+  if (/mancuerna/.test(candidate) && /mancuerna/.test(selectedName)) score += 5;
+  if (/maquina/.test(candidate) && /maquina/.test(selectedName)) score += 4;
+  if (/cable|polea/.test(candidate) && /cable|polea/.test(selectedName)) score += 4;
+
+  return score;
+}
+
+function rankReplacementCandidates(
+  candidates: Array<{ id: string; name: string; category: string }>,
+  selected: ProgramDayExercise,
+  todayExercises: ProgramDayExercise[],
+  dayName: string | null,
+  replacementCategories: string[],
+  trainingContext: TrainingContext | null,
+): ReplacementCandidate[] {
+  const categoryCounts = todayExercises.reduce<Record<string, number>>((counts, exercise) => {
+    if (!exercise.category) return counts;
+    counts[exercise.category] = (counts[exercise.category] ?? 0) + 1;
+    return counts;
+  }, {});
+
+  return candidates
+    .map((candidate) => {
+      const categoryIndex = replacementCategories.indexOf(candidate.category);
+      const categoryScore = categoryIndex === -1 ? 0 : (replacementCategories.length - categoryIndex) * 30;
+      const dayScore = (categoryCounts[candidate.category] ?? 0) * 18;
+      const selectedScore = selected.category === candidate.category ? 16 : 0;
+      const score = categoryScore
+        + dayScore
+        + selectedScore
+        + candidateNameScore(candidate.name, selected, dayName)
+        + exerciseSuitabilityScore(candidate, trainingContext);
+      const reason = selected.category === candidate.category
+        ? 'Misma categoría del ejercicio original'
+        : categoryCounts[candidate.category]
+          ? 'Encaja mejor con el enfoque de esta sesión'
+          : 'Compatible con el patrón del día';
+
+      return { ...candidate, score, reason };
+    })
+    .sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      return scoreDiff === 0 ? a.name.localeCompare(b.name, 'es') : scoreDiff;
+    })
+    .slice(0, 3)
+    .map((candidate, index) => ({
+      id: candidate.id,
+      name: candidate.name,
+      category: candidate.category,
+      rank: (index + 1) as 1 | 2 | 3,
+      reason: candidate.reason,
+    }));
 }
 
 function sessionDraftKey(userId: string) {
@@ -89,6 +218,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [programComplete, setProgramComplete] = useState(false);
   const [completedWeeks, setCompletedWeeks] = useState(0);
   const [todayExercises, setTodayExercises] = useState<ProgramDayExercise[]>([]);
+  const [trainingContext, setTrainingContext] = useState<TrainingContext | null>(null);
   const [programLoadError, setProgramLoadError] = useState<string | null>(null);
 
   const [adjustInput, setAdjustInput] = useState('');
@@ -98,7 +228,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [showReplaceModal, setShowReplaceModal] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<ProgramDayExercise | null>(null);
-  const [replacementCandidates, setReplacementCandidates] = useState<Array<{ id: string; name: string; category: string }>>([]);
+  const [replacementCandidates, setReplacementCandidates] = useState<ReplacementCandidate[]>([]);
   const [replaceLoading, setReplaceLoading] = useState(false);
   const [replaceError, setReplaceError] = useState<string | null>(null);
 
@@ -115,9 +245,16 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     Promise.all([
       supabase.from('sessions').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(5),
       supabase.from('programs').select('id, total_days, total_weeks, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    ]).then(async ([sRes, pRes]) => {
+      supabase.from('profiles').select('gender, training_experience').eq('id', userId).maybeSingle(),
+    ]).then(async ([sRes, pRes, profileRes]) => {
       setProgramLoadError(null);
       if (sRes.data) setSessions(sRes.data);
+      if (profileRes.data) {
+        setTrainingContext({
+          gender: profileRes.data.gender ?? 'male',
+          training_experience: profileRes.data.training_experience ?? 'intermediate',
+        });
+      }
 
       if (pRes.data) {
         const progress = await fetchProgramProgressState(userId, pRes.data);
@@ -181,19 +318,29 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     setAdjustError(null);
     const snapshot = [...todayExercises];
     try {
-      const exerciseNames = todayExercises
-        .map((e) => e.exercise_name)
-        .filter((name): name is string => Boolean(name));
-      const adjustments = await parseAdjustmentWithAI(adjustInput, exerciseNames);
+      const adjustments = await parseAdjustmentWithAI(adjustInput, {
+        dayName: nextDayName,
+        exercises: todayExercises
+          .filter((exercise) => Boolean(exercise.exercise_name))
+          .map((exercise) => ({
+            name: exercise.exercise_name ?? '',
+            category: exercise.category,
+            role: exercise.role,
+            sets: exercise.sets,
+            repsMin: exercise.reps_min,
+            repsMax: exercise.reps_max,
+          })),
+      });
 
       if (nextDayId) {
         const { data: dayData } = await supabase
-          .from('program_days').select('id, exercises')
+          .from('program_days').select('id, day_name, exercises')
           .eq('id', nextDayId).maybeSingle();
 
         if (dayData?.exercises && Array.isArray(dayData.exercises)) {
           const exercises = dayData.exercises as Array<Record<string, unknown>>;
           let adjusted = [...exercises];
+          const replacementSummaries: string[] = [];
 
           for (const adj of adjustments) {
             if (adj.weightScale) {
@@ -208,21 +355,49 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
               const accessories = adjusted.filter((e) => e.role === 'accessory');
               adjusted = [...primaries, ...secondaries, ...accessories].slice(0, adj.maxExercises);
             }
-            if (adj.type === 'swap_specific' && adj.targetExerciseName) {
-              const target = adj.targetExerciseName.toLowerCase();
-              const targetWords = target.split(/\s+/).filter(w => w.length > 2);
-              const matchIdx = adjusted.findIndex((ex) => {
-                const exName = ((ex.exercise_name as string) ?? '').toLowerCase();
-                return targetWords.some(w => exName.includes(w)) || exName.includes(target);
-              });
+            if (adj.type === 'swap_specific' || adj.type === 'swap_exercise') {
+              const normalizedAdjusted = adjusted.map((ex) => normalizeProgramDayExercise(ex as Record<string, unknown>));
+              let matchIdx = -1;
+
+              if (adj.type === 'swap_specific' && adj.targetExerciseName) {
+                const target = normalizeText(adj.targetExerciseName);
+                const targetWords = target.split(/\s+/).filter(w => w.length > 2);
+                matchIdx = normalizedAdjusted.findIndex((ex) => {
+                  const exName = normalizeText(ex.exercise_name);
+                  return targetWords.some(w => exName.includes(w)) || exName.includes(target);
+                });
+              } else {
+                matchIdx = normalizedAdjusted.findIndex((ex) => ex.role === 'primary' || ex.role === 'secondary');
+              }
+
               if (matchIdx !== -1) {
-                const matchedEx = adjusted[matchIdx];
-                const currentIds = new Set(adjusted.map((e) => e.exercise_id));
+                const matchedEx = normalizedAdjusted[matchIdx];
+                const currentIds = new Set(normalizedAdjusted.map((e) => e.exercise_id));
+                const replacementCategories = inferReplacementCategories(matchedEx, normalizedAdjusted, dayData.day_name ?? nextDayName);
+                if (replacementCategories.length === 0) continue;
                 const { data: candidates } = await supabase.from('exercises').select('id, name, category')
-                  .eq('user_id', user.id).neq('status', 'NO').eq('category', matchedEx.category).neq('id', matchedEx.exercise_id);
-                const substitute = candidates?.find(c => !currentIds.has(c.id));
+                  .eq('user_id', user.id)
+                  .neq('status', 'NO')
+                  .in('category', replacementCategories)
+                  .neq('id', matchedEx.exercise_id);
+                const [substitute] = rankReplacementCandidates(
+                  (candidates ?? []).filter(candidate => !currentIds.has(candidate.id) && isExerciseSuitableForProfile(candidate, trainingContext)),
+                  matchedEx,
+                  normalizedAdjusted,
+                  dayData.day_name ?? nextDayName,
+                  replacementCategories,
+                  trainingContext,
+                );
+
                 if (substitute) {
-                  adjusted[matchIdx] = { ...matchedEx, exercise_id: substitute.id, exercise_name: substitute.name, notes: 'Sustituido por solicitud' };
+                  adjusted[matchIdx] = {
+                    ...adjusted[matchIdx],
+                    exercise_id: substitute.id,
+                    exercise_name: substitute.name,
+                    category: substitute.category,
+                    notes: `Sustituido por chat inteligente · ${substitute.reason}`,
+                  };
+                  replacementSummaries.push(`${substitute.name} reemplazó a ${matchedEx.exercise_name}.`);
                 }
               }
             }
@@ -231,7 +406,11 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           await supabase.from('program_days').update({ exercises: adjusted }).eq('id', dayData.id);
           setTodayExercises(adjusted.map((ex) => normalizeProgramDayExercise(ex as Record<string, unknown>)));
           setOriginalExercises(snapshot);
-          setAdjustedSummary(adjustments[0]?.details ?? 'Sesión ajustada según tu solicitud.');
+          setAdjustedSummary(
+            [adjustments[0]?.details ?? 'Sesión ajustada según tu solicitud.', ...replacementSummaries]
+              .filter(Boolean)
+              .join(' ')
+          );
         }
       }
 
@@ -259,14 +438,28 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     setReplaceLoading(true);
     try {
       const currentIds = new Set(todayExercises.map((item) => item.exercise_id));
+      const replacementCategories = inferReplacementCategories(exercise, todayExercises, nextDayName);
+      if (replacementCategories.length === 0) {
+        setReplacementCandidates([]);
+        return;
+      }
       const { data } = await supabase
         .from('exercises')
         .select('id, name, category')
         .eq('user_id', user.id)
         .neq('status', 'NO')
-        .eq('category', exercise.category)
+        .in('category', replacementCategories)
         .neq('id', exercise.exercise_id);
-      setReplacementCandidates((data ?? []).filter((candidate) => !currentIds.has(candidate.id)));
+      setReplacementCandidates(
+        rankReplacementCandidates(
+          (data ?? []).filter((candidate) => !currentIds.has(candidate.id) && isExerciseSuitableForProfile(candidate, trainingContext)),
+          exercise,
+          todayExercises,
+          nextDayName,
+          replacementCategories,
+          trainingContext,
+        ),
+      );
     } catch {
       setReplaceError('No se pudieron cargar reemplazos para este ejercicio.');
     } finally {
@@ -279,12 +472,14 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     setReplaceLoading(true);
     setReplaceError(null);
     try {
+      const compatibleCategories = inferReplacementCategories(selectedExercise, todayExercises, nextDayName);
       const result = await replaceExerciseInProgram({
         userId: user.id,
         programId,
         currentWeek,
         fromExerciseId: selectedExercise.exercise_id ?? '',
         toExerciseId: candidateId,
+        compatibleCategories,
       });
       localStorage.removeItem(sessionDraftKey(user.id));
       const refreshed = nextDayNum

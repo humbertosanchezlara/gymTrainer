@@ -2,6 +2,7 @@ import type { Exercise, ProgramDayExercise } from '../types';
 import { estimateWeight } from '../engine/weightEstimator';
 import { supabase } from '../lib/supabase';
 import { normalizeProgramDayExercise } from './programState';
+import { isExerciseSuitableForProfile } from '../engine/exerciseSuitability';
 
 interface ReplaceExerciseParams {
   userId: string;
@@ -9,6 +10,7 @@ interface ReplaceExerciseParams {
   currentWeek: number;
   fromExerciseId: string;
   toExerciseId: string;
+  compatibleCategories?: string[];
 }
 
 interface ReplaceExerciseResult {
@@ -48,12 +50,44 @@ function buildReplacementExercise(
   };
 }
 
+function normalizeText(value?: string | null): string {
+  return (value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function dayMatchesCompatibleCategories(
+  exercises: ProgramDayExercise[],
+  dayName: string | null | undefined,
+  compatibleCategories: string[],
+): boolean {
+  if (compatibleCategories.length === 0) return false;
+
+  const dayCategorySet = new Set(exercises.map((exercise) => exercise.category));
+  if (compatibleCategories.some((category) => dayCategorySet.has(category))) return true;
+
+  const normalizedDayName = normalizeText(dayName);
+  const hasPullCategory = compatibleCategories.some((category) => category.startsWith('PULL_'));
+  const hasPushCategory = compatibleCategories.some((category) => category.startsWith('PUSH_'));
+  const hasLegCategory = compatibleCategories.some((category) =>
+    ['QUAD_DOMINANT', 'POSTERIOR_CHAIN', 'CALVES'].includes(category)
+  );
+
+  if (hasPullCategory && /pull|jalon|espalda|back/.test(normalizedDayName)) return true;
+  if (hasPushCategory && /push|empuje|pecho|hombro/.test(normalizedDayName)) return true;
+  if (hasLegCategory && /pierna|lower|leg|sentadilla/.test(normalizedDayName)) return true;
+
+  return false;
+}
+
 export async function replaceExerciseInProgram({
   userId,
   programId,
   currentWeek,
   fromExerciseId,
   toExerciseId,
+  compatibleCategories,
 }: ReplaceExerciseParams): Promise<ReplaceExerciseResult> {
   if (fromExerciseId === toExerciseId) {
     throw new Error('El ejercicio de origen y destino no pueden ser iguales.');
@@ -73,7 +107,13 @@ export async function replaceExerciseInProgram({
     throw new Error('No se encontró alguno de los ejercicios seleccionados.');
   }
 
-  if (removed.category !== replacement.category) {
+  if (!isExerciseSuitableForProfile(replacement, profile)) {
+    throw new Error('El reemplazo no es adecuado para el perfil actual.');
+  }
+
+  const canCrossCategoryReplace = compatibleCategories?.includes(replacement.category) ?? false;
+
+  if (removed.category !== replacement.category && !canCrossCategoryReplace) {
     throw new Error('El reemplazo debe pertenecer a la misma categoría.');
   }
 
@@ -92,7 +132,7 @@ export async function replaceExerciseInProgram({
 
   const { data: futureDays, error: futureDaysError } = await supabase
     .from('program_days')
-    .select('id, exercises, week_num')
+    .select('id, day_name, exercises, week_num')
     .eq('program_id', programId)
     .gte('week_num', currentWeek)
     .order('week_num')
@@ -106,6 +146,14 @@ export async function replaceExerciseInProgram({
     const normalized = (Array.isArray(day.exercises) ? day.exercises : []).map((exercise) =>
       normalizeProgramDayExercise(exercise as Record<string, unknown>)
     );
+    const canReplaceInDay = removed.category === replacement.category || dayMatchesCompatibleCategories(
+      normalized,
+      day.day_name,
+      compatibleCategories ?? [],
+    );
+
+    if (!canReplaceInDay) continue;
+
     const alreadyHasReplacement = normalized.some(
       (exercise) => exercise.exercise_id === toExerciseId && exercise.exercise_id !== fromExerciseId
     );

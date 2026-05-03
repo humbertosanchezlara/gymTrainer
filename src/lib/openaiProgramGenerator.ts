@@ -8,6 +8,7 @@ import {
 import { estimateWeight } from '../engine/weightEstimator';
 import { supabase } from './supabase';
 import { isExerciseEnabled } from '../utils/programState';
+import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../engine/exerciseSuitability';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -151,9 +152,10 @@ function sanitizeGeneratedDays(params: {
   const exercisesByCategory = new Map<string, Exercise[]>();
 
   for (const exercise of exercises) {
-    if (!isExerciseEnabled(exercise.status)) continue;
+    if (!isExerciseEnabled(exercise.status) || !isExerciseSuitableForProfile(exercise, profile)) continue;
     const list = exercisesByCategory.get(exercise.category) ?? [];
     list.push(exercise);
+    list.sort((a, b) => exerciseSuitabilityScore(b, profile) - exerciseSuitabilityScore(a, profile));
     exercisesByCategory.set(exercise.category, list);
   }
 
@@ -169,10 +171,11 @@ function sanitizeGeneratedDays(params: {
       const categoryExercises = exercisesByCategory.get(category) ?? [];
       const currentExercise = exerciseMap.get(generatedExercise.exercise_id);
       const hasValidCategory = currentExercise?.category === category;
+      const hasSuitableExercise = currentExercise ? isExerciseSuitableForProfile(currentExercise, profile) : false;
       const isDuplicate = usedIds.has(generatedExercise.exercise_id);
 
       let resolvedExercise =
-        hasValidCategory && !isDuplicate
+        hasValidCategory && hasSuitableExercise && !isDuplicate
           ? currentExercise ?? null
           : categoryExercises.find((candidate) => !usedIds.has(candidate.id)) ?? null;
 
@@ -236,8 +239,10 @@ async function enhanceWithAI(
   // Group available exercises by category for the LLM to choose from
   const byCategory: Record<string, Array<{ id: string; name: string }>> = {};
   for (const ex of exercises) {
+    if (!isExerciseSuitableForProfile(ex, profile)) continue;
     if (!byCategory[ex.category]) byCategory[ex.category] = [];
     byCategory[ex.category].push({ id: ex.id, name: ex.name });
+    byCategory[ex.category].sort((a, b) => exerciseSuitabilityScore(b, profile) - exerciseSuitabilityScore(a, profile));
   }
 
   const systemPrompt = `Eres un entrenador de fuerza experto en periodización. Mejora la selección de ejercicios y añade instrucciones de variación a un programa ya estructurado.
@@ -251,7 +256,8 @@ REGLAS ESTRICTAS (en orden de prioridad):
 6. Si hay tendencia "improving" → añade nota de posible aumento de peso la próxima sesión
 7. Notas breves y concretas: "3-1-1 tempo · 90s descanso" o "agarre neutro · excéntrico lento"
 8. Máximo 2 cambios de accesorios por semana dentro del mismo bloque (no aplica a cambios por limitaciones)
-9. Responde SOLO con JSON válido`;
+9. No programes Dominadas con Lastre salvo que el perfil sea avanzado; para perfiles femeninos o beginner prioriza Dominadas con Apoyo cuando exista, luego jalones en polea o variantes sin lastre.
+10. Responde SOLO con JSON válido`;
 
   const context = {
     bloque: { nombre: block.name, semana: weekNum, reps: `${block.repsMin}-${block.repsMax}`, rpe: `${block.rpeMin}-${block.rpeMax}` },
