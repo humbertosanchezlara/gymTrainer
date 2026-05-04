@@ -6,6 +6,7 @@ import type { Exercise } from '../../types';
 import { DEFAULT_EXERCISES, type MovementCategory, CATEGORY_LABELS } from '../../types';
 import { estimateWeight } from '../../engine/weightEstimator';
 import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
+import { fetchActiveInjuries } from '../../lib/injuryProfile';
 import AddExerciseModal from '../AddExerciseModal';
 import ExerciseDetailModal from '../ExerciseDetailModal';
 import { isExerciseEnabled, normalizeProgramDayExercise } from '../../utils/programState';
@@ -172,8 +173,10 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
         }
 
         const { data: profile } = await supabase
-          .from('profiles').select('bodyweight, training_experience, gender')
+          .from('profiles').select('bodyweight, training_experience, gender, limitations')
           .eq('id', user.id).single();
+        const injuries = await fetchActiveInjuries(user.id);
+        const suitabilityProfile = profile ? { ...profile, injuries } : { injuries };
 
         const { data: allDays } = await supabase
           .from('program_days').select('id, exercises').eq('program_id', program.id);
@@ -193,8 +196,8 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
                 const category = ex.category || exInfo?.category;
                 const candidates = category ? (yesByCategory.get(category) ?? []) : [];
                 const substitute = candidates
-                  .filter(s => !usedIds.has(s.id) && isExerciseSuitableForProfile(s, profile))
-                  .sort((a, b) => exerciseSuitabilityScore(b, profile) - exerciseSuitabilityScore(a, profile))[0];
+                  .filter(s => !usedIds.has(s.id) && isExerciseSuitableForProfile(s, suitabilityProfile))
+                  .sort((a, b) => exerciseSuitabilityScore(b, suitabilityProfile) - exerciseSuitabilityScore(a, suitabilityProfile))[0];
                 if (substitute) {
                   usedIds.delete(exId);
                   usedIds.add(substitute.id);

@@ -1,8 +1,12 @@
 import type { Exercise } from '../types';
+import type { UserInjury } from '../types';
+import { injurySuitabilityScore, isExerciseAllowedByInjuries } from './injuryExerciseRules';
 
 export interface ExerciseSuitabilityProfile {
   gender?: string | null;
   training_experience?: string | null;
+  limitations?: string | null;
+  injuries?: UserInjury[] | null;
 }
 
 function normalizeText(value: string): string {
@@ -10,6 +14,48 @@ function normalizeText(value: string): string {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+const GENERIC_EXERCISE_WORDS = new Set([
+  'barra',
+  'cable',
+  'mancuerna',
+  'mancuernas',
+  'maquina',
+  'press',
+  'remo',
+  'sentadilla',
+  'squat',
+  'peso',
+  'muerto',
+  'curl',
+  'extension',
+  'elevacion',
+  'jalon',
+]);
+
+function significantTokens(value: string): string[] {
+  return normalizeText(value)
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 3);
+}
+
+export function exerciseConflictsWithLimitations(exerciseName: string, limitations?: string | null): boolean {
+  if (!limitations?.trim()) return false;
+
+  const normalizedLimitations = normalizeText(limitations);
+  const exercisePhrase = normalizeText(exerciseName);
+  if (normalizedLimitations.includes(exercisePhrase)) return true;
+
+  const exerciseTokens = significantTokens(exerciseName);
+  if (exerciseTokens.length === 0) return false;
+
+  const allTokensPresent = exerciseTokens.every((token) => normalizedLimitations.includes(token));
+  if (allTokensPresent) return true;
+
+  const distinctiveTokens = exerciseTokens.filter((token) => !GENERIC_EXERCISE_WORDS.has(token));
+  return distinctiveTokens.length > 0 && distinctiveTokens.every((token) => normalizedLimitations.includes(token));
 }
 
 function isWeightedPullUp(exerciseName: string): boolean {
@@ -33,6 +79,14 @@ export function isExerciseSuitableForProfile(
   profile?: ExerciseSuitabilityProfile | null,
 ): boolean {
   const experience = profile?.training_experience ?? 'intermediate';
+
+  if (exerciseConflictsWithLimitations(exercise.name, profile?.limitations)) {
+    return false;
+  }
+
+  if (!isExerciseAllowedByInjuries(exercise as Pick<Exercise, 'name' | 'category'>, profile)) {
+    return false;
+  }
 
   if (isWeightedPullUp(exercise.name)) {
     return experience === 'advanced';
@@ -65,5 +119,5 @@ export function exerciseSuitabilityScore(
     return -18;
   }
 
-  return 0;
+  return injurySuitabilityScore(exercise as Pick<Exercise, 'name' | 'category'>, profile);
 }

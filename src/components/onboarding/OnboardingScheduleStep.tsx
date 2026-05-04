@@ -1,4 +1,5 @@
 import { OnboardingSectionHeader } from './OnboardingControls';
+import type { InjuryDraft } from '../../lib/injuryProfile';
 
 interface OnboardingScheduleStepProps {
   totalSteps: number;
@@ -9,6 +10,8 @@ interface OnboardingScheduleStepProps {
   onSessionMinutesChange: (value: number) => void;
   limitations: string;
   onLimitationsChange: (value: string) => void;
+  injuryDraft: InjuryDraft;
+  onInjuryDraftChange: (value: InjuryDraft) => void;
 }
 
 export function OnboardingScheduleStep({
@@ -20,7 +23,13 @@ export function OnboardingScheduleStep({
   onSessionMinutesChange,
   limitations,
   onLimitationsChange,
+  injuryDraft,
+  onInjuryDraftChange,
 }: OnboardingScheduleStepProps) {
+  const updateInjury = <K extends keyof InjuryDraft>(key: K, value: InjuryDraft[K]) => {
+    onInjuryDraftChange({ ...injuryDraft, [key]: value });
+  };
+
   return (
     <div>
       <OnboardingSectionHeader n="03" totalSteps={totalSteps} question="¿Cuántos días?" hint="Sé honesto. Vale más cumplir 3 que prometer 6." />
@@ -63,6 +72,89 @@ export function OnboardingScheduleStep({
             rows={2}
             style={{ width: '100%', boxSizing: 'border-box', padding: '16px 0', border: 'none', borderBottom: '2px solid var(--rule)', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', fontSize: 16, outline: 'none', resize: 'none' }}
           />
+        </div>
+
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 8, padding: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={injuryDraft.enabled}
+              onChange={(e) => updateInjury('enabled', e.target.checked)}
+              style={{ width: 18, height: 18, accentColor: 'var(--ink)' }}
+            />
+            <span className="uc" style={{ color: 'var(--muted)', fontSize: 11 }}>Usar progresión por lesión</span>
+          </label>
+
+          {injuryDraft.enabled && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 18 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span className="caption" style={{ color: 'var(--muted)' }}>Zona</span>
+                  <input
+                    value={injuryDraft.body_part}
+                    onChange={(e) => updateInjury('body_part', e.target.value)}
+                    style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span className="caption" style={{ color: 'var(--muted)' }}>Lado</span>
+                  <select
+                    value={injuryDraft.side}
+                    onChange={(e) => updateInjury('side', e.target.value as InjuryDraft['side'])}
+                    style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                  >
+                    <option value="left">Izquierdo</option>
+                    <option value="right">Derecho</option>
+                    <option value="bilateral">Bilateral</option>
+                    <option value="unspecified">Sin especificar</option>
+                  </select>
+                </label>
+              </div>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span className="caption" style={{ color: 'var(--muted)' }}>Patrón de síntoma</span>
+                <select
+                  value={injuryDraft.pain_pattern}
+                  onChange={(e) => updateInjury('pain_pattern', e.target.value as InjuryDraft['pain_pattern'])}
+                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                >
+                  <option value="delayed_next_day">Al día siguiente</option>
+                  <option value="post_load_hours_later">Horas después</option>
+                  <option value="during_exercise">Durante el ejercicio</option>
+                  <option value="load_threshold_only">Solo arriba de cierta carga</option>
+                </select>
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span className="caption" style={{ color: 'var(--muted)' }}>Señal gatillo</span>
+                <input
+                  value={injuryDraft.trigger_sensation}
+                  onChange={(e) => updateInjury('trigger_sensation', e.target.value)}
+                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                />
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span className="caption" style={{ color: 'var(--muted)' }}>Evitar</span>
+                <textarea
+                  rows={2}
+                  value={injuryDraft.avoided_exercise_names}
+                  onChange={(e) => updateInjury('avoided_exercise_names', e.target.value)}
+                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', resize: 'vertical' }}
+                />
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span className="caption" style={{ color: 'var(--muted)' }}>Tolerados</span>
+                <textarea
+                  rows={2}
+                  value={injuryDraft.tolerated_exercise_names}
+                  onChange={(e) => updateInjury('tolerated_exercise_names', e.target.value)}
+                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', resize: 'vertical' }}
+                />
+              </label>
+            </div>
+          )}
         </div>
       </div>
     </div>

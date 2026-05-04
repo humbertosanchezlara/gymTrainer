@@ -5,6 +5,12 @@ import { DEFAULT_EXERCISES, type ExerciseStatus } from '../types';
 import { estimateKeyLifts } from '../engine/weightEstimator';
 import { generateWeekWithAI } from '../lib/openaiProgramGenerator';
 import {
+  DEFAULT_INJURY_DRAFT,
+  fetchPrimaryInjuryDraft,
+  savePrimaryInjuryDraft,
+  type InjuryDraft,
+} from '../lib/injuryProfile';
+import {
   NO_EQUIPMENT_DEFAULT_EXERCISES,
   deriveEngineProfile,
   generateNoEquipmentProgram,
@@ -37,6 +43,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
   const [scheduleDays, setScheduleDays] = useState(4);
   const [sessionMinutes, setSessionMinutes] = useState(60);
   const [limitations, setLimitations] = useState('');
+  const [injuryDraft, setInjuryDraft] = useState<InjuryDraft>(DEFAULT_INJURY_DRAFT);
   const [keyLifts, setKeyLifts] = useState({ squat: 0, bench: 0, deadlift: 0, ohp: 0 });
   const [liftsEstimated, setLiftsEstimated] = useState(false);
 
@@ -67,6 +74,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         setSessionMinutes(data.session_minutes ?? 60);
         setLimitations(data.limitations ?? '');
       });
+    fetchPrimaryInjuryDraft(user.id).then(setInjuryDraft);
   }, [regenerateMode, user]);
 
   const next = () => {
@@ -75,8 +83,13 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
       setKeyLifts(estimated);
       setLiftsEstimated(true);
     }
-    if (step < TOTAL_STEPS - 1) setStep(s => s + 1);
-    else regenerateMode ? handleRegenerateFinish() : handleFinish();
+    if (step < TOTAL_STEPS - 1) {
+      setStep(s => s + 1);
+    } else if (regenerateMode) {
+      handleRegenerateFinish();
+    } else {
+      handleFinish();
+    }
   };
 
   const prev = () => setStep(s => Math.max(0, s - 1));
@@ -101,6 +114,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         goal, equipment_access: equipment, schedule_days: scheduleDays,
         session_minutes: sessionMinutes, limitations: limitations || null,
       }).eq('id', user.id);
+      const injuries = await savePrimaryInjuryDraft(user.id, injuryDraft);
 
       const seedExercises = isNoEquipment ? NO_EQUIPMENT_DEFAULT_EXERCISES : DEFAULT_EXERCISES;
       await supabase.from('exercises').upsert(
@@ -111,7 +125,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
       const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).neq('status', 'NO');
       if (!exercises || exercises.length === 0) throw new Error('No exercises');
 
-      let currentKeyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
+      const currentKeyLifts = { squat: 0, bench: 0, deadlift: 0, ohp: 0 };
       if (!isNoEquipment) {
         const { data: ww } = await supabase.from('working_weights').select('weight, exercise:exercises(name)').eq('user_id', user.id);
         if (ww) {
@@ -142,7 +156,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         const result = await generateWeekWithAI({
           weekNum: 1,
           exercises,
-          profile: { bodyweight, height, training_experience: experience, goal, schedule_days: scheduleDays, session_minutes: sessionMinutes, gender, limitations },
+          profile: { bodyweight, height, training_experience: experience, goal, schedule_days: scheduleDays, session_minutes: sessionMinutes, gender, limitations, injuries },
           keyLifts: currentKeyLifts,
           cycleNumber: 1,
         });
@@ -186,6 +200,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         session_minutes: sessionMinutes, equipment_access: equipment,
         limitations: limitations || null,
       });
+      const injuries = await savePrimaryInjuryDraft(user.id, injuryDraft);
 
       const seedExercises = isNoEquipment ? NO_EQUIPMENT_DEFAULT_EXERCISES : DEFAULT_EXERCISES;
       await supabase.from('exercises').upsert(
@@ -207,7 +222,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
         const result = await generateWeekWithAI({
           weekNum: 1,
           exercises,
-          profile: { bodyweight, height, training_experience: experience, goal, schedule_days: scheduleDays, session_minutes: sessionMinutes, gender, limitations },
+          profile: { bodyweight, height, training_experience: experience, goal, schedule_days: scheduleDays, session_minutes: sessionMinutes, gender, limitations, injuries },
           keyLifts,
           cycleNumber: 1,
         });
@@ -323,6 +338,8 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
               onSessionMinutesChange={setSessionMinutes}
               limitations={limitations}
               onLimitationsChange={setLimitations}
+              injuryDraft={injuryDraft}
+              onInjuryDraftChange={setInjuryDraft}
             />
           )}
 

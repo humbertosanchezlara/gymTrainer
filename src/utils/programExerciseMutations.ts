@@ -3,6 +3,7 @@ import { estimateWeight } from '../engine/weightEstimator';
 import { supabase } from '../lib/supabase';
 import { normalizeProgramDayExercise } from './programState';
 import { isExerciseSuitableForProfile } from '../engine/exerciseSuitability';
+import { fetchActiveInjuries } from '../lib/injuryProfile';
 
 interface ReplaceExerciseParams {
   userId: string;
@@ -93,10 +94,11 @@ export async function replaceExerciseInProgram({
     throw new Error('El ejercicio de origen y destino no pueden ser iguales.');
   }
 
-  const [{ data: exercises }, { data: profile }, { data: workingWeightRow }] = await Promise.all([
+  const [{ data: exercises }, { data: profile }, { data: workingWeightRow }, injuries] = await Promise.all([
     supabase.from('exercises').select('*').eq('user_id', userId),
-    supabase.from('profiles').select('bodyweight, training_experience, gender').eq('id', userId).single(),
+    supabase.from('profiles').select('bodyweight, training_experience, gender, limitations').eq('id', userId).single(),
     supabase.from('working_weights').select('weight').eq('user_id', userId).eq('exercise_id', toExerciseId).maybeSingle(),
+    fetchActiveInjuries(userId),
   ]);
 
   const allExercises = (exercises ?? []) as Exercise[];
@@ -107,7 +109,8 @@ export async function replaceExerciseInProgram({
     throw new Error('No se encontró alguno de los ejercicios seleccionados.');
   }
 
-  if (!isExerciseSuitableForProfile(replacement, profile)) {
+  const suitabilityProfile = profile ? { ...profile, injuries } : { injuries };
+  if (!isExerciseSuitableForProfile(replacement, suitabilityProfile)) {
     throw new Error('El reemplazo no es adecuado para el perfil actual.');
   }
 

@@ -7,6 +7,7 @@ interface ProgressionResult {
   prev_weight: number;
   next_weight: number;
   action: ProgressionAction;
+  note?: string;
 }
 
 const KG_TO_LBS = 2.20462;
@@ -95,7 +96,10 @@ export function SessionSavePanel({
                     borderTop: '1px solid var(--rule)',
                   }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{result.exercise_name}</span>
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>
+                    {result.exercise_name}
+                    {result.note && <span className="caption" style={{ display: 'block', color: 'var(--muted)', marginTop: 3 }}>{result.note}</span>}
+                  </span>
                   {result.action === 'up'
                     ? <span className="mono caption" style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>↑ {result.prev_weight} kg ({kgToLbs(result.prev_weight)} lb) → {result.next_weight} kg ({kgToLbs(result.next_weight)} lb)</span>
                     : <span className="mono caption" style={{ color: 'var(--muted)', flexShrink: 0 }}>⚠ Revisa el peso</span>}
