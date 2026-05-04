@@ -16,7 +16,7 @@ export default function ProgramView() {
   const { user } = useAuth();
   const [program, setProgram] = useState<Program | null>(null);
   const [days, setDays] = useState<ProgramDay[]>([]);
-  const [expandedDay, setExpandedDay] = useState<number | null>(1);
+  const [expandedDay, setExpandedDay] = useState<number | null>(null);
   const [showRPE, setShowRPE] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState(1);
@@ -99,6 +99,16 @@ export default function ProgramView() {
 
     return () => { cancelled = true; };
   }, [program, selectedWeek, currentWeek]);
+
+  useEffect(() => {
+    if (!generatedWeek || selectedWeek !== currentWeek) {
+      setExpandedDay(null);
+      return;
+    }
+
+    const hasCurrentDay = days.some((day) => day.day_number === currentDay);
+    setExpandedDay(hasCurrentDay ? currentDay : null);
+  }, [days, generatedWeek, selectedWeek, currentWeek, currentDay]);
 
   if (loading) {
     return (
