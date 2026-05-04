@@ -58,6 +58,26 @@ interface SessionDraft {
   logs: SessionLogEntry[];
 }
 
+type SaveSessionInsert = {
+  user_id: string;
+  program_id?: string | null;
+  name: string;
+  week_num: number | null;
+  day_num?: number | null;
+  block_num: number | null;
+};
+
+type SaveSessionLogInsert = {
+  session_id: string;
+  exercise_id: string;
+  sets: number;
+  reps_per_set: number;
+  weight: number;
+  rpe: number | null;
+  notes: string | null;
+  range_status?: RangeStatus;
+};
+
 function sessionDraftKey(userId: string) {
   return `session_draft_${userId}`;
 }
@@ -127,6 +147,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
   const [progressionResults, setProgressionResults] = useState<ProgressionResult[]>([]);
   const [deloadApplied, setDeloadApplied] = useState<{ days: number; percentage: number } | null>(null);
   const [programId, setProgramId] = useState<string | null>(null);
+  const [programCreatedAt, setProgramCreatedAt] = useState<string | null>(null);
   const [totalDays, setTotalDays] = useState<number>(0);
   const [currentSessCount, setCurrentSessCount] = useState<number>(0);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -188,6 +209,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
       setBlockNum(bNum);
       setBlockName(bName);
       setProgramId(program.id);
+      setProgramCreatedAt(program.created_at);
       setTotalDays(program.total_days);
       setCurrentSessCount(sessCount);
 
@@ -330,25 +352,88 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
   };
 
   const handleSave = async () => {
-    if (!user || !sessionName || logs.length === 0) return;
+    if (!user || !sessionName || logs.length === 0 || saving || saved) return;
     setSaving(true);
     setSaveError(null);
 
     try {
-      const { data: session, error: sErr } = await supabase
-        .from('sessions')
-        .insert({
+      let session: { id: string } | null = null;
+      let existingLogCount = 0;
+
+      if (!travelDraft && programId && weekNum > 0 && dayNum > 0) {
+        let existingQuery = supabase
+          .from('sessions')
+          .select('id, logs:session_logs(id)')
+          .eq('user_id', user.id)
+          .eq('program_id', programId)
+          .eq('week_num', weekNum)
+          .eq('day_num', dayNum)
+          .not('block_num', 'is', null)
+          .order('created_at', { ascending: true })
+          .limit(1);
+
+        if (programCreatedAt) {
+          existingQuery = existingQuery.gte('created_at', programCreatedAt);
+        }
+
+        let { data: existing, error: existingErr } = await existingQuery.maybeSingle();
+        if (existingErr && /program_id|day_num/.test(existingErr.message)) {
+          let legacyExistingQuery = supabase
+            .from('sessions')
+            .select('id, logs:session_logs(id)')
+            .eq('user_id', user.id)
+            .eq('week_num', weekNum)
+            .eq('name', sessionName)
+            .not('block_num', 'is', null)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (programCreatedAt) {
+            legacyExistingQuery = legacyExistingQuery.gte('created_at', programCreatedAt);
+          }
+
+          ({ data: existing, error: existingErr } = await legacyExistingQuery.maybeSingle());
+        }
+        if (existingErr) throw existingErr;
+        if (existing) {
+          session = { id: existing.id };
+          existingLogCount = Array.isArray(existing.logs) ? existing.logs.length : 0;
+        }
+      }
+
+      if (!session) {
+        const sessionPayload: SaveSessionInsert = {
           user_id: user.id,
+          program_id: programId,
           name: sessionName,
           week_num: weekNum === 0 ? null : weekNum,
+          day_num: weekNum === 0 ? null : dayNum,
           block_num: blockNum === 0 ? null : blockNum,
-        })
-        .select()
-        .single();
+        };
 
-      if (sErr || !session) throw sErr ?? new Error('No se pudo crear la sesión');
+        let sessionInsert = await supabase
+          .from('sessions')
+          .insert(sessionPayload)
+          .select()
+          .single();
 
-      const logRows = logs.filter(l => l.exercise_id).map(l => ({
+        if (sessionInsert.error && /program_id|day_num/.test(sessionInsert.error.message)) {
+          const { program_id, day_num, ...legacySessionPayload } = sessionPayload;
+          sessionInsert = await supabase
+            .from('sessions')
+            .insert(legacySessionPayload)
+            .select()
+            .single();
+        }
+
+        const { data: createdSession, error: sErr } = sessionInsert;
+        if (sErr || !createdSession) throw sErr ?? new Error('No se pudo crear la sesión');
+        session = createdSession;
+      }
+
+      if (!session) throw new Error('No se pudo crear o recuperar la sesión');
+
+      const logRows: SaveSessionLogInsert[] = logs.filter(l => l.exercise_id).map(l => ({
         session_id: session.id,
         exercise_id: l.exercise_id,
         sets: l.sets,
@@ -359,8 +444,12 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         range_status: l.range_status ?? 'unknown',
       }));
 
-      if (logRows.length > 0) {
-        const { error: logErr } = await supabase.from('session_logs').insert(logRows);
+      if (logRows.length > 0 && existingLogCount === 0) {
+        let { error: logErr } = await supabase.from('session_logs').insert(logRows);
+        if (logErr && /range_status/.test(logErr.message)) {
+          const legacyLogRows = logRows.map(({ range_status, ...row }) => row);
+          ({ error: logErr } = await supabase.from('session_logs').insert(legacyLogRows));
+        }
         if (logErr) throw logErr;
       }
 

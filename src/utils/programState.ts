@@ -38,6 +38,13 @@ export interface ProgramWeekLoadResult {
   isFallback: boolean;
 }
 
+type ProgressSessionRow = {
+  id: string;
+  week_num: number | null;
+  day_num?: number | null;
+  logs?: Array<{ id: string }>;
+};
+
 export function getBlockInfo(week: number): { blockNum: number; blockName: string } {
   if (week <= 4) return { blockNum: 1, blockName: 'Volumen' };
   if (week <= 8) return { blockNum: 2, blockName: 'Intensidad' };
@@ -127,15 +134,10 @@ export async function fetchProgramDayForWeekOrFallback(
 
 export async function fetchProgramProgressState(
   userId: string,
-  program: Pick<Program, 'created_at' | 'total_days' | 'total_weeks'>
+  program: Pick<Program, 'id' | 'created_at' | 'total_days' | 'total_weeks'>
 ): Promise<ProgramProgressState> {
-  const [countRes, lastSessionRes] = await Promise.all([
-    supabase
-      .from('sessions')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('created_at', program.created_at)
-      .not('block_num', 'is', null),
+  const [initialSessionsRes, lastSessionRes] = await Promise.all([
+    fetchProgressSessions(userId, program.created_at, true),
     supabase
       .from('sessions')
       .select('date')
@@ -147,8 +149,34 @@ export async function fetchProgramProgressState(
       .maybeSingle(),
   ]);
 
-  const sessionCount = countRes.count ?? 0;
+  const sessionsRes = initialSessionsRes.error && /day_num/.test(initialSessionsRes.error.message)
+    ? await fetchProgressSessions(userId, program.created_at, false)
+    : initialSessionsRes;
+  const sessions = (sessionsRes.data ?? []) as unknown as ProgressSessionRow[];
+  const completedSessions = sessions.filter((session) =>
+    Array.isArray(session.logs) && session.logs.length > 0
+  );
+  const hasScheduledSlots = completedSessions.some((session) =>
+    typeof session.week_num === 'number' && typeof session.day_num === 'number'
+  );
+  const sessionCount = hasScheduledSlots
+    ? new Set(
+        completedSessions
+          .filter((session) => typeof session.week_num === 'number' && typeof session.day_num === 'number')
+          .map((session) => `${session.week_num}:${session.day_num}`)
+      ).size
+    : completedSessions.length;
   return deriveProgramProgressState(program, sessionCount, lastSessionRes.data?.date ?? null);
+}
+
+function fetchProgressSessions(userId: string, programCreatedAt: string, includeDayNum: boolean) {
+  return supabase
+    .from('sessions')
+    .select(includeDayNum ? 'id, week_num, day_num, logs:session_logs(id)' : 'id, week_num, logs:session_logs(id)')
+    .eq('user_id', userId)
+    .gte('created_at', programCreatedAt)
+    .not('block_num', 'is', null)
+    .order('created_at', { ascending: true });
 }
 
 export function deriveProgramProgressState(

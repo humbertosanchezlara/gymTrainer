@@ -53,9 +53,11 @@ CREATE TABLE working_weights (
 CREATE TABLE sessions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES profiles(id) NOT NULL,
+  program_id UUID,
   date DATE NOT NULL DEFAULT CURRENT_DATE,
   name TEXT NOT NULL,
   week_num INTEGER,
+  day_num INTEGER,
   block_num INTEGER,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
