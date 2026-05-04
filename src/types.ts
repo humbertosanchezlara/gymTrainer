@@ -79,7 +79,41 @@ export interface SessionLog {
   weight: number;
   rpe: number | null;
   notes: string | null;
+  range_status?: RangeStatus | null;
   exercise?: Exercise;
+}
+
+export type InjurySide = 'left' | 'right' | 'bilateral' | 'unspecified';
+export type PainPattern = 'during_exercise' | 'delayed_next_day' | 'post_load_hours_later' | 'load_threshold_only';
+export type SymptomLevel = 'pending' | 'none' | 'mild_self_resolving' | 'lasting_hours';
+export type RangeStatus = 'partial' | 'target' | 'unknown';
+export type InjuryProgressionStep = 'range' | 'reps' | 'weight';
+
+export interface UserInjury {
+  id: string;
+  user_id: string;
+  body_part: string;
+  side: InjurySide;
+  pain_pattern: PainPattern;
+  trigger_sensation: string | null;
+  avoided_exercise_names: string[];
+  tolerated_exercise_names: string[];
+  clean_weeks_required: number;
+  progression_order: InjuryProgressionStep[];
+  active: boolean;
+  created_at?: string;
+}
+
+export interface InjuryCheckin {
+  id: string;
+  user_id: string;
+  injury_id: string;
+  session_id: string;
+  checkin_date: string;
+  symptom_level: SymptomLevel;
+  free_text: string | null;
+  created_at?: string;
+  injury?: UserInjury;
 }
 
 export interface BlockMetric {

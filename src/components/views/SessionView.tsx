@@ -9,9 +9,14 @@ import {
   Loader2,
 } from 'lucide-react';
 import { ensureWeekGenerated, generateAndSaveNextWeek } from '../../lib/openaiProgramGenerator';
+import { fetchActiveInjuries } from '../../lib/injuryProfile';
+import { createPendingInjuryCheckins, fetchRecentInjuryCheckins } from '../../lib/injuryCheckins';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { Tab } from '../MainShell';
+import type { RangeStatus, UserInjury } from '../../types';
 import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
+import { injuryAffectsExercise } from '../../engine/injuryExerciseRules';
+import { decideInjuryProgression } from '../../engine/injuryProgression';
 import { SessionTopBar } from './session/SessionTopBar';
 import { SessionHeaderCard } from './session/SessionHeaderCard';
 import { SessionTravelBanner } from './session/SessionTravelBanner';
@@ -30,6 +35,7 @@ export interface SessionLogEntry {
   weight: number;
   rpe: number;
   notes: string;
+  range_status?: RangeStatus;
   target_reps_min?: number;
   target_reps_max?: number;
   target_rpe?: number;
@@ -42,6 +48,7 @@ interface ProgressionResult {
   prev_weight: number;
   next_weight: number;
   action: ProgressionAction;
+  note?: string;
 }
 
 interface SessionDraft {
@@ -104,6 +111,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
   const isMobile = useIsMobile();
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [injuries, setInjuries] = useState<UserInjury[]>([]);
   const [sessionName, setSessionName] = useState('');
   const [weekNum, setWeekNum] = useState<number>(1);
   const [blockNum, setBlockNum] = useState<number>(1);
@@ -144,6 +152,8 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         .neq('status', 'NO')
         .order('category');
       if (exData) setExercises(exData);
+      const activeInjuries = await fetchActiveInjuries(userId);
+      setInjuries(activeInjuries);
 
       const { data: program } = await supabase
         .from('programs')
@@ -278,6 +288,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
             weight: currentWeight,
             rpe,
             notes: applyPenalty && currentWeight > 0 ? 'Carga reducida (Readaptación)' : '',
+            range_status: 'unknown',
             target_reps_min: ex.reps_min,
             target_reps_max: ex.reps_max,
             target_rpe: ex.rpe,
@@ -298,7 +309,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
   }, [user]);
 
   const addLog = () => {
-    setLogs([...logs, { exercise_id: '', exercise_name: '', sets: 3, reps_per_set: 8, weight: 0, rpe: 7, notes: '' }]);
+    setLogs([...logs, { exercise_id: '', exercise_name: '', sets: 3, reps_per_set: 8, weight: 0, rpe: 7, notes: '', range_status: 'unknown' }]);
   };
 
   const updateLog = (idx: number, field: string, value: string | number) => {
@@ -345,6 +356,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         weight: l.weight,
         rpe: l.rpe || null,
         notes: l.notes || null,
+        range_status: l.range_status ?? 'unknown',
       }));
 
       if (logRows.length > 0) {
@@ -352,9 +364,47 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
         if (logErr) throw logErr;
       }
 
+      await createPendingInjuryCheckins({
+        userId: user.id,
+        sessionId: session.id,
+        logs: logs.filter(l => l.exercise_id),
+        exercises,
+        injuries,
+      });
+
       const progressions: ProgressionResult[] = [];
       for (const l of logs.filter(l => l.exercise_id && l.weight > 0)) {
-        const result = computeProgression(l);
+        const exercise = exercises.find((item) => item.id === l.exercise_id);
+        const affectedInjury = exercise ? injuryAffectsExercise(exercise, injuries) : null;
+        let result = computeProgression(l);
+
+        if (affectedInjury) {
+          const recentCheckins = await fetchRecentInjuryCheckins(user.id, affectedInjury.id);
+          const decision = decideInjuryProgression({
+            injury: affectedInjury,
+            currentLog: {
+              reps_per_set: l.reps_per_set,
+              rpe: l.rpe,
+              range_status: l.range_status ?? 'unknown',
+              target_reps_max: l.target_reps_max,
+              target_rpe: l.target_rpe,
+            },
+            recentCheckins,
+          });
+          const scaled = decision.weightScale
+            ? Math.round((l.weight * decision.weightScale) / 2.5) * 2.5
+            : decision.weightDeltaPercent
+              ? Math.round((l.weight * (1 + decision.weightDeltaPercent / 100)) / 2.5) * 2.5
+              : l.weight;
+          result = {
+            exercise_name: l.exercise_name,
+            prev_weight: l.weight,
+            next_weight: scaled,
+            action: decision.decision === 'advance_weight' ? 'up' : decision.decision === 'deload' ? 'warn' : 'keep',
+            note: decision.note,
+          };
+        }
+
         progressions.push(result);
         const { error: wwErr } = await supabase.from('working_weights').upsert(
           { user_id: user.id, exercise_id: l.exercise_id, weight: result.next_weight, updated_at: new Date().toISOString() },
@@ -482,8 +532,8 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
             onAskDelete={setConfirmDeleteIdx}
             onCancelDelete={() => setConfirmDeleteIdx(null)}
             onRemove={removeLog}
-            onUpdate={updateLog}
-          />
+              onUpdate={updateLog}
+            />
         ))}
 
         <SessionSavePanel

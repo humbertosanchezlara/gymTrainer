@@ -1,7 +1,8 @@
-import type { Exercise } from '../types';
+import type { Exercise, UserInjury } from '../types';
 import { getSplitTemplate, type ExerciseSlot } from './splitTemplates';
 import { estimateWeight } from './weightEstimator';
 import { isExerciseEnabled } from '../utils/programState';
+import { injuryGuidanceNote } from './injuryExerciseRules';
 import {
   exerciseSuitabilityScore,
   isExerciseSuitableForProfile,
@@ -291,7 +292,9 @@ export function generateProgram(
   sessionMinutes: number = 60,
   gender: string = 'male',
   cycleNumber: number = 1,
-  currentWeek: number = 1
+  currentWeek: number = 1,
+  limitations?: string | null,
+  injuries?: UserInjury[] | null
 ): GeneratedProgram {
   const split = getSplitTemplate(days);
   const block = getBlockForWeek(currentWeek);
@@ -327,7 +330,7 @@ export function generateProgram(
     const slots = dayTemplate.slots.slice(0, maxExercises);
 
     for (const slot of slots) {
-      const exercise = resolveExercise(slot, exercises, usedIds, { gender, training_experience: experience });
+      const exercise = resolveExercise(slot, exercises, usedIds, { gender, training_experience: experience, limitations, injuries });
       if (!exercise) continue;
 
       usedIds.add(exercise.id);
@@ -380,7 +383,12 @@ export function generateProgram(
       const schemePrefix = isIsometric  ? `⏱ ${isoSeconds}s — `
                          : isUnilateral ? 'c/lado — '
                          : '';
-      const notes = `${schemePrefix}Peso de calibración — ajusta después de la sesión 1 · ${rest}s descanso`;
+      const injuryNote = injuryGuidanceNote(exercise, injuries);
+      const notes = [
+        `${schemePrefix}Peso de calibración — ajusta después de la sesión 1`,
+        `${rest}s descanso`,
+        injuryNote,
+      ].filter(Boolean).join(' · ');
 
       generatedExercises.push({
         exercise_id: exercise.id,

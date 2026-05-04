@@ -16,6 +16,7 @@ interface SessionLogEntry {
   weight: number;
   rpe: number;
   notes: string;
+  range_status?: 'partial' | 'target' | 'unknown';
 }
 
 interface WeightCellProps {
@@ -310,7 +311,19 @@ export function SessionExerciseCard({
         </div>
       </div>
 
-      <div style={{ padding: '8px 16px', borderTop: '1px solid var(--rule)', display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ padding: '8px 16px', borderTop: '1px solid var(--rule)', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>Rango</span>
+          <select
+            value={log.range_status ?? 'unknown'}
+            onChange={(e) => onUpdate(index, 'range_status', e.target.value)}
+            style={{ border: '1px solid var(--rule)', borderRadius: 6, background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', fontSize: 12, padding: '4px 6px' }}
+          >
+            <option value="unknown">Normal</option>
+            <option value="partial">Parcial</option>
+            <option value="target">Objetivo</option>
+          </select>
+        </label>
         <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>
           RPE {log.rpe} — {getRpeHint(log.rpe)}
         </span>

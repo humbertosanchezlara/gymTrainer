@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { Exercise } from '../types';
+import type { Exercise, UserInjury } from '../types';
 import {
   generateProgram,
   getBlockForWeek,
@@ -9,6 +9,8 @@ import { estimateWeight } from '../engine/weightEstimator';
 import { supabase } from './supabase';
 import { isExerciseEnabled } from '../utils/programState';
 import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../engine/exerciseSuitability';
+import { fetchActiveInjuries } from './injuryProfile';
+import { injuryGuidanceNote } from '../engine/injuryExerciseRules';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -21,6 +23,7 @@ export interface AIGeneratorProfile {
   session_minutes: number;
   gender: string;
   limitations?: string | null;
+  injuries?: UserInjury[] | null;
 }
 
 export interface WeekGenerationResult {
@@ -206,12 +209,18 @@ function sanitizeGeneratedDays(params: {
 
       usedIds.add(resolvedExercise.id);
 
+      const injuryNote = injuryGuidanceNote(resolvedExercise, profile.injuries);
+      const notes = injuryNote && !generatedExercise.notes.includes(injuryNote)
+        ? `${generatedExercise.notes} · ${injuryNote}`
+        : generatedExercise.notes;
+
       return {
         ...generatedExercise,
         exercise_id: resolvedExercise.id,
         exercise_name: resolvedExercise.name,
         category: resolvedExercise.category,
         weight: computeExerciseWeight(resolvedExercise, generatedExercise.role, profile, workingWeights),
+        notes,
       };
     });
 
@@ -415,7 +424,9 @@ export async function generateWeekWithAI(params: {
     profile.session_minutes,
     profile.gender,
     cycleNumber,
-    weekNum
+    weekNum,
+    profile.limitations,
+    profile.injuries
   );
 
   // For weeks 2+: apply current working weights and clear calibration flag
@@ -472,10 +483,11 @@ export async function generateAndSaveNextWeek(
     .eq('week_num', nextWeekNum);
   if ((existing ?? 0) > 0) return;
 
-  const [{ data: profile }, { data: exercises }, { data: wwData }] = await Promise.all([
+  const [{ data: profile }, { data: exercises }, { data: wwData }, injuries] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', userId).single(),
     supabase.from('exercises').select('*').eq('user_id', userId).neq('status', 'NO'),
     supabase.from('working_weights').select('exercise_id, weight').eq('user_id', userId),
+    fetchActiveInjuries(userId),
   ]);
 
   if (!profile || !exercises || exercises.length === 0) return;
@@ -555,6 +567,7 @@ export async function generateAndSaveNextWeek(
       session_minutes: Number(profile.session_minutes) || 60,
       gender: profile.gender || 'male',
       limitations: profile.limitations,
+      injuries,
       schedule_days: Number(profile.schedule_days),
     },
     keyLifts,

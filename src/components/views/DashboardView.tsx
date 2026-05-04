@@ -15,8 +15,11 @@ import {
   type TravelDayContext,
 } from '../../lib/openaiTravelGenerator';
 import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
+import { fetchActiveInjuries } from '../../lib/injuryProfile';
+import { fetchPendingInjuryCheckin, submitInjuryCheckin, type PendingInjuryCheckin } from '../../lib/injuryCheckins';
 import { Loader2 } from 'lucide-react';
 import type { Tab } from '../MainShell';
+import type { UserInjury } from '../../types';
 import { HeroSession } from '../forge/HeroSession';
 import { AdjustWithAI } from '../forge/AdjustWithAI';
 import { ContextCards } from '../forge/ContextCards';
@@ -70,6 +73,8 @@ interface ReplacementCandidate {
 interface TrainingContext {
   gender: string;
   training_experience: string;
+  limitations?: string | null;
+  injuries?: UserInjury[] | null;
 }
 
 // ─── Component ────────────────────────────────────────────
@@ -219,6 +224,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [completedWeeks, setCompletedWeeks] = useState(0);
   const [todayExercises, setTodayExercises] = useState<ProgramDayExercise[]>([]);
   const [trainingContext, setTrainingContext] = useState<TrainingContext | null>(null);
+  const [pendingCheckin, setPendingCheckin] = useState<PendingInjuryCheckin | null>(null);
   const [programLoadError, setProgramLoadError] = useState<string | null>(null);
 
   const [adjustInput, setAdjustInput] = useState('');
@@ -245,14 +251,19 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     Promise.all([
       supabase.from('sessions').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(5),
       supabase.from('programs').select('id, total_days, total_weeks, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('profiles').select('gender, training_experience').eq('id', userId).maybeSingle(),
-    ]).then(async ([sRes, pRes, profileRes]) => {
+      supabase.from('profiles').select('gender, training_experience, limitations').eq('id', userId).maybeSingle(),
+      fetchActiveInjuries(userId),
+      fetchPendingInjuryCheckin(userId),
+    ]).then(async ([sRes, pRes, profileRes, injuries, checkin]) => {
       setProgramLoadError(null);
+      setPendingCheckin(checkin);
       if (sRes.data) setSessions(sRes.data);
       if (profileRes.data) {
         setTrainingContext({
           gender: profileRes.data.gender ?? 'male',
           training_experience: profileRes.data.training_experience ?? 'intermediate',
+          limitations: profileRes.data.limitations ?? null,
+          injuries,
         });
       }
 
@@ -309,6 +320,17 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
       toast.success('Sesión revertida al plan original');
     } catch {
       toast.error('No se pudo revertir. Intenta de nuevo.');
+    }
+  };
+
+  const handleSubmitCheckin = async (level: 'none' | 'mild_self_resolving' | 'lasting_hours') => {
+    if (!pendingCheckin) return;
+    try {
+      await submitInjuryCheckin(pendingCheckin.id, level);
+      setPendingCheckin(null);
+      toast.success('Check-in de lesión guardado');
+    } catch {
+      toast.error('No se pudo guardar el check-in.');
     }
   };
 
@@ -586,6 +608,25 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
       {/* Program complete banner */}
       {programComplete && <DashboardProgramCompleteBanner completedWeeks={completedWeeks} onNewCycle={() => onNavigate('library')} />}
+
+      {pendingCheckin && (
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 6 }}>Check-in de lesión</div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>
+              ¿Cómo amaneció {pendingCheckin.injury.side === 'left' ? 'la zona izquierda' : pendingCheckin.injury.side === 'right' ? 'la zona derecha' : 'la zona afectada'}?
+            </div>
+            {pendingCheckin.injury.trigger_sensation && (
+              <div className="caption" style={{ color: 'var(--muted)', marginTop: 4 }}>{pendingCheckin.injury.trigger_sensation}</div>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <button className="btn btn-ghost" onClick={() => handleSubmitCheckin('none')}>Sin síntomas</button>
+            <button className="btn btn-ghost" onClick={() => handleSubmitCheckin('mild_self_resolving')}>Leve y se fue</button>
+            <button className="btn btn-ghost" onClick={() => handleSubmitCheckin('lasting_hours')}>Duró horas</button>
+          </div>
+        </div>
+      )}
 
       {/* Hero: today's session */}
       <HeroSession
