@@ -62,9 +62,11 @@ export interface WorkingWeight {
 export interface Session {
   id: string;
   user_id: string;
+  program_id: string | null;
   date: string;
   name: string;
   week_num: number | null;
+  day_num: number | null;
   block_num: number | null;
   notes: string | null;
   created_at: string;
