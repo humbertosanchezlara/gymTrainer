@@ -1,4 +1,4 @@
-import type { MovementCategory } from '../types';
+import type { MovementCategory, UserInjury } from '../types';
 
 /**
  * A slot in a training day template.
@@ -20,6 +20,39 @@ export interface SplitTemplate {
   type: string;
   label: string;
   days: DayTemplate[];
+}
+
+export interface SplitTemplateOptions {
+  limitations?: string | null;
+  injuries?: UserInjury[] | null;
+}
+
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function userRequestedTwoUpperTwoLowerAndTherapyCore(options?: SplitTemplateOptions | null): boolean {
+  const text = normalizeText([
+    options?.limitations,
+    ...(options?.injuries ?? []).flatMap((injury) => [
+      injury.body_part,
+      injury.trigger_sensation,
+      ...(injury.avoided_exercise_names ?? []),
+      ...(injury.tolerated_exercise_names ?? []),
+    ]),
+  ].filter(Boolean).join(' '));
+
+  if (!text) return false;
+
+  const requestedUpper = /dos dias? (sean )?de superior|2 dias? (sean )?de superior/.test(text);
+  const requestedLower = /dos dias? (sean )?(de )?inferior|2 dias? (sean )?(de )?inferior/.test(text);
+  const requestedCore = /un dia core|1 dia core|solo mete abdomen ese dia|solo abdomen/.test(text);
+  const requestedTherapy = /terapeutic|terapia|rehab|liga|banda|bosu|bossu|equilibrio/.test(text);
+
+  return requestedUpper && requestedLower && requestedCore && requestedTherapy;
 }
 
 // ─── 3-Day Full Body ──────────────────────────────────────
@@ -178,6 +211,69 @@ const PPL_5: SplitTemplate = {
   ],
 };
 
+// ─── 5-Day Upper/Lower + Therapeutic Core ────────────────
+const UPPER_LOWER_CORE_THERAPY_5: SplitTemplate = {
+  type: 'upper_lower_core_therapy_5',
+  label: 'Superior / Inferior + Core Terapéutico — 5 Días',
+  days: [
+    {
+      name: 'Superior A',
+      slots: [
+        { category: 'PUSH_HORIZONTAL', role: 'primary', preferredExercise: 'Barra Press de Banca' },
+        { category: 'PULL_HORIZONTAL', role: 'primary', preferredExercise: 'Remo en Cable (Sentado)' },
+        { category: 'PUSH_VERTICAL', role: 'secondary', preferredExercise: 'Press Hombro en Máquina' },
+        { category: 'PULL_VERTICAL', role: 'secondary', preferredExercise: 'Jalón al Pecho (Neutro)' },
+        { category: 'PUSH_VERTICAL', role: 'accessory', preferredExercise: 'Elevación Lateral (Cable)' },
+        { category: 'ARMS', role: 'accessory', preferredExercise: 'Extensión Tríceps Cable' },
+      ],
+    },
+    {
+      name: 'Inferior A',
+      slots: [
+        { category: 'POSTERIOR_CHAIN', role: 'primary', preferredExercise: 'Peso Muerto Rumano' },
+        { category: 'QUAD_DOMINANT', role: 'secondary', preferredExercise: 'Prensa Horizontal (Máquina)' },
+        { category: 'POSTERIOR_CHAIN', role: 'secondary', preferredExercise: 'Hip Thrust (Máquina)' },
+        { category: 'POSTERIOR_CHAIN', role: 'accessory', preferredExercise: 'Curl Femoral (Sentado)' },
+        { category: 'QUAD_DOMINANT', role: 'accessory', preferredExercise: 'TKE con Banda' },
+        { category: 'CALVES', role: 'accessory', preferredExercise: 'Elevación Talones Sentado' },
+      ],
+    },
+    {
+      name: 'Superior B',
+      slots: [
+        { category: 'PULL_VERTICAL', role: 'primary', preferredExercise: 'Jalón al Pecho (Barra)' },
+        { category: 'PUSH_HORIZONTAL', role: 'primary', preferredExercise: 'Mancuerna Press Inclinado' },
+        { category: 'PULL_HORIZONTAL', role: 'secondary', preferredExercise: 'Remo con Apoyo de Pecho' },
+        { category: 'PUSH_VERTICAL', role: 'secondary', preferredExercise: 'Elevación Lateral (MC)' },
+        { category: 'PUSH_VERTICAL', role: 'accessory', preferredExercise: 'Pájaro en Máquina' },
+        { category: 'ARMS', role: 'accessory', preferredExercise: 'Curl Martillo' },
+      ],
+    },
+    {
+      name: 'Inferior B',
+      slots: [
+        { category: 'POSTERIOR_CHAIN', role: 'primary', preferredExercise: 'Hip Thrust (Barra)' },
+        { category: 'POSTERIOR_CHAIN', role: 'secondary', preferredExercise: 'Curl Femoral (Tumbado)' },
+        { category: 'QUAD_DOMINANT', role: 'secondary', preferredExercise: 'Extensión de Pierna' },
+        { category: 'POSTERIOR_CHAIN', role: 'accessory', preferredExercise: 'Patada de Glúteo' },
+        { category: 'POSTERIOR_CHAIN', role: 'accessory', preferredExercise: 'Abductores (Máquina)' },
+        { category: 'CALVES', role: 'accessory', preferredExercise: 'Elevación Talones de Pie' },
+      ],
+    },
+    {
+      name: 'Core Terapéutico',
+      slots: [
+        { category: 'CORE', role: 'primary', preferredExercise: 'Pallof Press con Banda' },
+        { category: 'CORE', role: 'secondary', preferredExercise: 'Dead Bug con Banda' },
+        { category: 'CORE', role: 'secondary', preferredExercise: 'Bird Dog' },
+        { category: 'CORE', role: 'accessory', preferredExercise: 'Plancha Lateral' },
+        { category: 'CORE', role: 'accessory', preferredExercise: 'Balance en Bosu' },
+        { category: 'CORE', role: 'accessory', preferredExercise: 'Equilibrio Unipodal en Bosu' },
+      ],
+    },
+  ],
+};
+
 // ─── 6-Day PPL×2 ──────────────────────────────────────────
 const PPL_6: SplitTemplate = {
   type: 'ppl_6',
@@ -251,7 +347,11 @@ const FULL_BODY_2: SplitTemplate = {
 /**
  * Returns the appropriate split template based on the number of training days.
  */
-export function getSplitTemplate(days: number): SplitTemplate {
+export function getSplitTemplate(days: number, options?: SplitTemplateOptions): SplitTemplate {
+  if (days === 5 && userRequestedTwoUpperTwoLowerAndTherapyCore(options)) {
+    return UPPER_LOWER_CORE_THERAPY_5;
+  }
+
   switch (days) {
     case 2: return FULL_BODY_2;
     case 3: return FULL_BODY_3;
@@ -262,4 +362,4 @@ export function getSplitTemplate(days: number): SplitTemplate {
   }
 }
 
-export { FULL_BODY_2, FULL_BODY_3, UPPER_LOWER_4, PPL_5, PPL_6 };
+export { FULL_BODY_2, FULL_BODY_3, UPPER_LOWER_4, UPPER_LOWER_CORE_THERAPY_5, PPL_5, PPL_6 };

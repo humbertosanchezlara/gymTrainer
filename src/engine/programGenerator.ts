@@ -296,7 +296,7 @@ export function generateProgram(
   limitations?: string | null,
   injuries?: UserInjury[] | null
 ): GeneratedProgram {
-  const split = getSplitTemplate(days);
+  const split = getSplitTemplate(days, { limitations, injuries });
   const block = getBlockForWeek(currentWeek);
   const bmiAdj = getBmiAdjustments(bmi, experience);
   const cycleAdj = getCycleAdjustments(cycleNumber);

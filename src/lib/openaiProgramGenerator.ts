@@ -10,7 +10,7 @@ import { supabase } from './supabase';
 import { isExerciseEnabled } from '../utils/programState';
 import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../engine/exerciseSuitability';
 import { fetchActiveInjuries } from './injuryProfile';
-import { injuryGuidanceNote } from '../engine/injuryExerciseRules';
+import { injuryGuidanceNote, isExerciseAllowedByInjuries } from '../engine/injuryExerciseRules';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -231,6 +231,20 @@ function sanitizeGeneratedDays(params: {
   });
 }
 
+function summarizeInjuriesForPrompt(injuries?: UserInjury[] | null) {
+  return (injuries ?? [])
+    .filter((injury) => injury.active)
+    .map((injury) => ({
+      zona: injury.body_part,
+      lado: injury.side,
+      patron: injury.pain_pattern,
+      senal: injury.trigger_sensation,
+      evitar: injury.avoided_exercise_names,
+      tolerados: injury.tolerated_exercise_names,
+      progresion: injury.progression_order,
+    }));
+}
+
 async function enhanceWithAI(
   baseDays: GeneratedDay[],
   exercises: Exercise[],
@@ -259,14 +273,16 @@ async function enhanceWithAI(
 REGLAS ESTRICTAS (en orden de prioridad):
 1. LIMITACIONES DEL USUARIO (MÁXIMA PRIORIDAD): Si cualquier ejercicio del programa base aparece en las limitaciones/lesiones del usuario (independientemente de su rol: primary, secondary o accessory), DEBES reemplazarlo obligatoriamente por otro ejercicio válido de la misma categoría de la biblioteca. Esta regla anula todas las demás.
 2. SOLO usa exercise_id y exercise_name de la biblioteca proporcionada (nunca inventes IDs)
-3. Ejercicios PRIMARY y SECONDARY sin conflicto de limitación: mantén el mismo ejercicio, solo mejora las notas (tempo, agarre, pausa)
-4. Ejercicios ACCESSORY: puedes sustituir por otro de la misma categoría si el rendimiento lo justifica
-5. Si hay tendencia "struggling" en un accesorio → sustituye por variante más fácil de la misma categoría
-6. Si hay tendencia "improving" → añade nota de posible aumento de peso la próxima sesión
-7. Notas breves y concretas: "3-1-1 tempo · 90s descanso" o "agarre neutro · excéntrico lento"
-8. Máximo 2 cambios de accesorios por semana dentro del mismo bloque (no aplica a cambios por limitaciones)
-9. No programes Dominadas con Lastre salvo que el perfil sea avanzado; para perfiles femeninos o beginner prioriza Dominadas con Apoyo cuando exista, luego jalones en polea o variantes sin lastre.
-10. Responde SOLO con JSON válido`;
+3. Ejercicios en listas "evitar" de lesiones activas están prohibidos aunque sean PRIMARY o SECONDARY.
+4. Respeta la estructura y nombre de cada día del programa base. Si hay un día "Core Terapéutico", usa solo ejercicios CORE ese día.
+5. Ejercicios PRIMARY y SECONDARY sin conflicto de limitación/lesión: mantén el mismo ejercicio, solo mejora las notas (tempo, agarre, pausa)
+6. Ejercicios ACCESSORY: puedes sustituir por otro de la misma categoría si el rendimiento lo justifica
+7. Si hay tendencia "struggling" en un accesorio → sustituye por variante más fácil de la misma categoría
+8. Si hay tendencia "improving" → añade nota de posible aumento de peso la próxima sesión
+9. Notas breves y concretas: "3-1-1 tempo · 90s descanso" o "agarre neutro · excéntrico lento"
+10. Máximo 2 cambios de accesorios por semana dentro del mismo bloque (no aplica a cambios por limitaciones)
+11. No programes Dominadas con Lastre salvo que el perfil sea avanzado; para perfiles femeninos o beginner prioriza Dominadas con Apoyo cuando exista, luego jalones en polea o variantes sin lastre.
+12. Responde SOLO con JSON válido`;
 
   const context = {
     bloque: { nombre: block.name, semana: weekNum, reps: `${block.repsMin}-${block.repsMax}`, rpe: `${block.rpeMin}-${block.rpeMax}` },
@@ -275,6 +291,7 @@ REGLAS ESTRICTAS (en orden de prioridad):
       objetivo: profile.goal,
       genero: profile.gender,
       limitaciones: profile.limitations || 'ninguna',
+      lesiones_activas: summarizeInjuriesForPrompt(profile.injuries),
     },
     biblioteca_por_categoria: byCategory,
     programa_base: baseDays.map(day => ({
@@ -338,13 +355,19 @@ REGLAS ESTRICTAS (en orden de prioridad):
     return words.length > 0 && words.every(w => limNorm.includes(w));
   };
 
+  const conflictsWithInjury = (exercise: Exercise): boolean =>
+    !isExerciseAllowedByInjuries(exercise, profile);
+
   const aiMergedDays = baseDays.map(baseDay => {
     const llmDay = parsed.days.find(d => d.day_number === baseDay.day_number);
     if (!llmDay || !Array.isArray(llmDay.exercises)) return baseDay;
 
     // Only keep LLM choices with valid IDs from the library
     const validLLM = llmDay.exercises.filter(
-      lx => exerciseMap.has(lx.exercise_id) && isExerciseEnabled(exerciseMap.get(lx.exercise_id)!.status)
+      lx => {
+        const exercise = exerciseMap.get(lx.exercise_id);
+        return Boolean(exercise && isExerciseEnabled(exercise.status) && isExerciseSuitableForProfile(exercise, profile));
+      }
     );
     if (validLLM.length === 0) return baseDay;
 
@@ -358,7 +381,12 @@ REGLAS ESTRICTAS (en orden de prioridad):
       }
 
       // Primary/secondary: keep exercise unless it conflicts with user limitations
-      if ((baseEx.role === 'primary' || baseEx.role === 'secondary') && !conflictsWithLimitations(baseEx.exercise_name)) {
+      const baseExercise = exerciseMap.get(baseEx.exercise_id);
+      const baseHasConflict =
+        conflictsWithLimitations(baseEx.exercise_name) ||
+        Boolean(baseExercise && conflictsWithInjury(baseExercise));
+
+      if ((baseEx.role === 'primary' || baseEx.role === 'secondary') && !baseHasConflict) {
         return { ...baseEx, notes: llmEx.notes || baseEx.notes };
       }
 
