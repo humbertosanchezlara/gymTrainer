@@ -244,6 +244,12 @@ export const DEFAULT_EXERCISES: { name: string; category: MovementCategory }[] =
   { name: 'Elevación Piernas Colgado', category: 'CORE' },
   { name: 'Rueda Abdominal', category: 'CORE' },
   { name: 'Pallof Press', category: 'CORE' },
+  { name: 'Pallof Press con Banda', category: 'CORE' },
+  { name: 'Dead Bug con Banda', category: 'CORE' },
+  { name: 'Bird Dog', category: 'CORE' },
+  { name: 'Plancha Lateral', category: 'CORE' },
+  { name: 'Balance en Bosu', category: 'CORE' },
+  { name: 'Equilibrio Unipodal en Bosu', category: 'CORE' },
   { name: 'Rotación Landmine', category: 'CORE' },
   // Pantorrillas
   { name: 'Elevación Talones de Pie', category: 'CALVES' },
@@ -252,6 +258,10 @@ export const DEFAULT_EXERCISES: { name: string; category: MovementCategory }[] =
   // Aislamiento tren inferior
   { name: 'Patada de Glúteo', category: 'POSTERIOR_CHAIN' },
   { name: 'Abductores (Máquina)', category: 'POSTERIOR_CHAIN' },
+  { name: 'Puente de Glúteo con Banda', category: 'POSTERIOR_CHAIN' },
+  { name: 'Caminata Lateral con Banda', category: 'POSTERIOR_CHAIN' },
+  { name: 'Monster Walk con Banda', category: 'POSTERIOR_CHAIN' },
   { name: 'Aductores (Máquina)', category: 'QUAD_DOMINANT' },
   { name: 'Prensa Horizontal (Máquina)', category: 'QUAD_DOMINANT' },
+  { name: 'TKE con Banda', category: 'QUAD_DOMINANT' },
 ];

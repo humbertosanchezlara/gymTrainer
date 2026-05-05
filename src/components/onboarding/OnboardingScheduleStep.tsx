@@ -30,8 +30,42 @@ export function OnboardingScheduleStep({
     onInjuryDraftChange({ ...injuryDraft, [key]: value });
   };
 
+  const fieldControlStyle = {
+    width: '100%',
+    maxWidth: '100%',
+    boxSizing: 'border-box' as const,
+    border: '1px solid var(--rule)',
+    borderRadius: 6,
+    padding: '10px 12px',
+    background: 'transparent',
+    color: 'var(--ink)',
+    fontFamily: 'var(--sans)',
+    fontSize: 16,
+    lineHeight: 1.35,
+  };
+
+  const fieldLabelStyle = {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 6,
+    minWidth: 0,
+  };
+
   return (
     <div>
+      <style>{`
+        .injury-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 0.78fr);
+          gap: 12px;
+        }
+
+        @media (max-width: 430px) {
+          .injury-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+      `}</style>
       <OnboardingSectionHeader n="03" totalSteps={totalSteps} question="¿Cuántos días?" hint="Sé honesto. Vale más cumplir 3 que prometer 6." />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
         <div>
@@ -87,21 +121,21 @@ export function OnboardingScheduleStep({
 
           {injuryDraft.enabled && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 18 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="injury-grid">
+                <label style={fieldLabelStyle}>
                   <span className="caption" style={{ color: 'var(--muted)' }}>Zona</span>
                   <input
                     value={injuryDraft.body_part}
                     onChange={(e) => updateInjury('body_part', e.target.value)}
-                    style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                    style={fieldControlStyle}
                   />
                 </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={fieldLabelStyle}>
                   <span className="caption" style={{ color: 'var(--muted)' }}>Lado</span>
                   <select
                     value={injuryDraft.side}
                     onChange={(e) => updateInjury('side', e.target.value as InjuryDraft['side'])}
-                    style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                    style={{ ...fieldControlStyle, minWidth: 0 }}
                   >
                     <option value="left">Izquierdo</option>
                     <option value="right">Derecho</option>
@@ -111,12 +145,12 @@ export function OnboardingScheduleStep({
                 </label>
               </div>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={fieldLabelStyle}>
                 <span className="caption" style={{ color: 'var(--muted)' }}>Patrón de síntoma</span>
                 <select
                   value={injuryDraft.pain_pattern}
                   onChange={(e) => updateInjury('pain_pattern', e.target.value as InjuryDraft['pain_pattern'])}
-                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                  style={fieldControlStyle}
                 >
                   <option value="delayed_next_day">Al día siguiente</option>
                   <option value="post_load_hours_later">Horas después</option>
@@ -125,32 +159,33 @@ export function OnboardingScheduleStep({
                 </select>
               </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={fieldLabelStyle}>
                 <span className="caption" style={{ color: 'var(--muted)' }}>Señal gatillo</span>
-                <input
+                <textarea
+                  rows={2}
                   value={injuryDraft.trigger_sensation}
                   onChange={(e) => updateInjury('trigger_sensation', e.target.value)}
-                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                  style={{ ...fieldControlStyle, minHeight: 76, resize: 'vertical' }}
                 />
               </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={fieldLabelStyle}>
                 <span className="caption" style={{ color: 'var(--muted)' }}>Evitar</span>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={injuryDraft.avoided_exercise_names}
                   onChange={(e) => updateInjury('avoided_exercise_names', e.target.value)}
-                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', resize: 'vertical' }}
+                  style={{ ...fieldControlStyle, minHeight: 96, resize: 'vertical' }}
                 />
               </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={fieldLabelStyle}>
                 <span className="caption" style={{ color: 'var(--muted)' }}>Tolerados</span>
                 <textarea
-                  rows={2}
+                  rows={4}
                   value={injuryDraft.tolerated_exercise_names}
                   onChange={(e) => updateInjury('tolerated_exercise_names', e.target.value)}
-                  style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px', background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', resize: 'vertical' }}
+                  style={{ ...fieldControlStyle, minHeight: 124, resize: 'vertical' }}
                 />
               </label>
             </div>
