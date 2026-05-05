@@ -15,6 +15,22 @@ export interface ExerciseCatalogEntry {
 const youtubeSearch = (query: string) =>
   `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
 
+function normalizeName(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function withVideoUrl(name: string, entry: ExerciseCatalogEntry): ExerciseCatalogEntry {
+  return {
+    ...entry,
+    videoUrl: entry.videoUrl ?? youtubeSearch(`${name} exercise technique`),
+  };
+}
+
 // Keyed by English name (DEFAULT_EXERCISES.name) for stable lookup
 export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
   // ─── QUAD DOMINANT ──────────────────────────────────────
@@ -522,6 +538,7 @@ export const ES_TO_EN: Record<string, string> = {
   'Hack Squat': 'Hack Squat',
   'Prensa de Piernas': 'Leg Press',
   'Sentadilla Búlgara': 'Bulgarian Split Squat',
+  'Zancadas': 'Lunges',
   'Zancadas (Barra/MC)': 'Lunges',
   'Subidas al Cajón': 'Step Ups',
   'Sentadilla Goblet': 'Goblet Squat',
@@ -535,14 +552,17 @@ export const ES_TO_EN: Record<string, string> = {
   'Puente de Glúteos': 'Glute Bridge',
   'Curl Femoral (Tumbado)': 'Leg Curl (Lying)',
   'Curl Femoral (Sentado)': 'Leg Curl (Seated)',
+  'Curl Nórdico': 'Nordic Curl',
   'Nordic Curl': 'Nordic Curl',
   'Buenos Días': 'Good Morning',
+  'Jalón entre Piernas (Cable)': 'Cable Pull Through',
   'Jalón de Cable por Abajo': 'Cable Pull Through',
   'Barra Press de Banca': 'Barbell Bench Press',
   'Mancuerna Press de Banca': 'Dumbbell Bench Press',
   'Barra Press Inclinado': 'Incline Barbell Press',
   'Mancuerna Press Inclinado': 'Incline Dumbbell Press',
   'Press Declinado': 'Decline Press',
+  'Press Pecho en Máquina': 'Machine Chest Press',
   'Press de Pecho en Máquina': 'Machine Chest Press',
   'Aperturas en Cable': 'Cable Fly',
   'Aperturas con Mancuerna': 'Dumbbell Fly',
@@ -550,7 +570,9 @@ export const ES_TO_EN: Record<string, string> = {
   'Barra Press Militar': 'Barbell OHP',
   'Mancuerna Press Militar': 'Dumbbell OHP',
   'Press Arnold': 'Arnold Press',
+  'Press Hombro en Máquina': 'Seated Machine Press',
   'Press en Máquina Sentado': 'Seated Machine Press',
+  'Press Landmine': 'Landmine Press',
   'Press con Landmine': 'Landmine Press',
   'Elevación Lateral (MC)': 'Lateral Raise (DB)',
   'Elevación Lateral (Cable)': 'Lateral Raise (Cable)',
@@ -561,6 +583,7 @@ export const ES_TO_EN: Record<string, string> = {
   'Mancuerna Remo': 'Dumbbell Row',
   'Remo en Cable (Sentado)': 'Cable Row (Seated)',
   'Remo en Máquina': 'Machine Row',
+  'Remo con Apoyo de Pecho': 'Chest Supported Row',
   'Remo con Pecho Apoyado': 'Chest Supported Row',
   'Remo Meadows': 'Meadows Row',
   'Remo Pendlay': 'Pendlay Row',
@@ -575,14 +598,17 @@ export const ES_TO_EN: Record<string, string> = {
   'Jalón Brazos Rectos': 'Straight Arm Pulldown',
   'Barra Curl': 'Barbell Curl',
   'Mancuerna Curl': 'Dumbbell Curl',
+  'Curl Inclinado Mancuerna': 'Incline Dumbbell Curl',
   'Curl Inclinado con Mancuerna': 'Incline Dumbbell Curl',
   'Curl en Cable': 'Cable Curl',
   'Curl Martillo': 'Hammer Curl',
+  'Curl Predicador': 'Preacher Curl',
   'Curl en Predicador (Máquina)': 'Preacher Curl',
   'Press Banca Agarre Cerrado': 'Close Grip Bench Press',
   'Extensión Tríceps Cable': 'Tricep Pushdown',
   'Extensión Tríceps sobre Cabeza': 'Overhead Tricep Extension',
   'Rompecráneos': 'Skull Crushers',
+  'Fondos (Tríceps)': 'Dips (Tricep)',
   'Fondos de Tríceps': 'Dips (Tricep)',
   'Plancha': 'Plank',
   'Crunch en Cable': 'Cable Crunch',
@@ -595,6 +621,7 @@ export const ES_TO_EN: Record<string, string> = {
   'Plancha Lateral': 'Plancha Lateral',
   'Balance en Bosu': 'Balance en Bosu',
   'Equilibrio Unipodal en Bosu': 'Equilibrio Unipodal en Bosu',
+  'Rotación Landmine': 'Landmine Rotation',
   'Rotación con Landmine': 'Landmine Rotation',
   'Elevación Talones de Pie': 'Standing Calf Raise',
   'Elevación Talones Sentado': 'Seated Calf Raise',
@@ -605,12 +632,43 @@ export const ES_TO_EN: Record<string, string> = {
   'TKE con Banda': 'TKE con Banda',
 };
 
+const EXERCISE_DB_CATALOG = Object.fromEntries(
+  Object.values(EXERCISE_DB).flatMap((exercise) => {
+    const entry: ExerciseCatalogEntry = {
+      instructions: [
+        exercise.description,
+        exercise.cues?.length ? `Claves: ${exercise.cues.join(' · ')}` : null,
+      ].filter(Boolean).join(' '),
+      images: [],
+      videoUrl: youtubeSearch(`${exercise.name} exercise technique`),
+    };
+
+    return [
+      [normalizeName(exercise.name), entry],
+      [normalizeName(exercise.nameEs), entry],
+    ];
+  })
+);
+
 /** Look up catalog entry by exercise name (Spanish or English) */
 export function getCatalogEntry(name: string): ExerciseCatalogEntry | null {
   // Direct match (English name)
-  if (EXERCISE_CATALOG[name]) return EXERCISE_CATALOG[name];
+  if (EXERCISE_CATALOG[name]) return withVideoUrl(name, EXERCISE_CATALOG[name]);
+
   // Spanish → English lookup
   const en = ES_TO_EN[name];
-  if (en && EXERCISE_CATALOG[en]) return EXERCISE_CATALOG[en];
+  if (en && EXERCISE_CATALOG[en]) return withVideoUrl(en, EXERCISE_CATALOG[en]);
+
+  const normalized = normalizeName(name);
+  const normalizedCatalogName = Object.keys(EXERCISE_CATALOG).find((catalogName) =>
+    normalizeName(catalogName) === normalized
+  );
+  if (normalizedCatalogName) {
+    return withVideoUrl(normalizedCatalogName, EXERCISE_CATALOG[normalizedCatalogName]);
+  }
+
+  const engineEntry = EXERCISE_DB_CATALOG[normalized];
+  if (engineEntry) return engineEntry;
+
   return null;
 }
