@@ -8,7 +8,11 @@ export interface BandExerciseDefinition {
   category: MovementCategory;
   instructions: string;
   images: string[];
+  videoUrl?: string;
 }
+
+const YT = 'https://www.youtube.com/results?search_query=';
+const youtubeSearch = (query: string) => `${YT}${encodeURIComponent(query)}`;
 
 export const BAND_EXERCISES: BandExerciseDefinition[] = [
   // ─── TREN INFERIOR ──────────────────────────────────────────
@@ -60,15 +64,17 @@ export const BAND_EXERCISES: BandExerciseDefinition[] = [
     name: 'Crunch Inverso con Banda',
     category: 'CORE',
     instructions:
-      'Acostado, anclar la banda atrás de la cabeza sujetándola/pies dentro. Flexionar rodillas hacia el pecho levantando cadera levemente.',
+      'Acostado boca arriba, ancla la banda detrás de la cabeza o sostenla con las manos para crear tensión. Lleva rodillas hacia el pecho elevando ligeramente la cadera, pausa un momento y baja controlado sin arquear la espalda baja.',
     images: [],
+    videoUrl: youtubeSearch('crunch inverso con banda tecnica'),
   },
   {
     name: 'Plancha Lateral',
     category: 'CORE',
     instructions:
-      'Sostenerse sobre el antebrazo y borde externo del pie. Abdomen contraído y cadera alineada. Manda la línea recta todo lo posible.',
+      'Sostenerse sobre el antebrazo y borde externo del pie. Abdomen contraído, cadera elevada y hombro lejos de la oreja. Mantén una línea recta de cabeza a pies; si cuesta, apoya rodillas.',
     images: [],
+    videoUrl: youtubeSearch('plancha lateral tecnica'),
   },
   {
     name: 'V-Ups Alternos',
@@ -81,15 +87,17 @@ export const BAND_EXERCISES: BandExerciseDefinition[] = [
     name: 'Bicicleta (Bicycle Crunches)',
     category: 'CORE',
     instructions:
-      'Llevar codo derecho a rodilla izquierda y alternar fluidamente, controlando la respiración.',
+      'Acostado boca arriba, manos detrás de la cabeza sin jalar el cuello. Lleva codo derecho hacia rodilla izquierda mientras extiendes la pierna contraria, alterna lados de forma controlada y mantén la espalda baja estable.',
     images: [],
+    videoUrl: youtubeSearch('bicycle crunch tecnica'),
   },
   {
     name: 'Leñador Inverso con Banda (Reverse Wood Chop)',
     category: 'CORE',
     instructions:
-      'Anclar banda abajo, jalar diagonalmente hacia arriba torciendo el tronco superior.',
+      'Ancla la banda abajo y colócate de lado al punto de anclaje. Toma la banda con ambas manos y llévala en diagonal desde abajo hacia arriba, rotando el tronco con control mientras la cadera se mantiene estable. Regresa lento a la posición inicial.',
     images: [],
+    videoUrl: youtubeSearch('reverse wood chop band technique'),
   },
 
   // ─── EMPUJE HORIZONTAL ──────────────────────────────────────

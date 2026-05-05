@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { getCatalogEntry } from '../data/exerciseCatalog';
 
 interface Props {
@@ -100,6 +100,18 @@ export default function ExerciseDetailModal({ exerciseName, onClose }: Props) {
                 {entry.instructions}
               </p>
             </div>
+
+            {entry.videoUrl && (
+              <a
+                href={entry.videoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-outline/40 px-4 py-2 text-sm font-semibold text-on-surface hover:bg-surface-container-high transition-colors"
+              >
+                Ver referencia en YouTube
+                <ExternalLink size={14} />
+              </a>
+            )}
           </div>
         </motion.div>
       </motion.div>

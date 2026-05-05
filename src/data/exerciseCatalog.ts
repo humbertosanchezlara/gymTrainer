@@ -9,7 +9,11 @@ const IMG = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exe
 export interface ExerciseCatalogEntry {
   instructions: string;
   images: string[];
+  videoUrl?: string;
 }
+
+const youtubeSearch = (query: string) =>
+  `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
 
 // Keyed by English name (DEFAULT_EXERCISES.name) for stable lookup
 export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
@@ -387,6 +391,43 @@ export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
     instructions:
       'De pie perpendicular a una polea, sujeta el asa con ambas manos a la altura del pecho. Extiende los brazos al frente resistiendo la rotación. Regresa las manos al pecho.',
     images: [],
+    videoUrl: youtubeSearch('Pallof press tecnica'),
+  },
+  'Pallof Press con Banda': {
+    instructions:
+      'Ancla una banda a la altura del pecho y colócate de lado al punto de anclaje. Sujeta la banda con ambas manos frente al pecho, separa los pies a la anchura de caderas y extiende los brazos al frente sin dejar que el tronco rote. Regresa controlado al pecho y repite antes de cambiar de lado.',
+    images: [],
+    videoUrl: youtubeSearch('Pallof press con banda tecnica'),
+  },
+  'Dead Bug con Banda': {
+    instructions:
+      'Acuéstate boca arriba con la espalda baja pegada al piso. Ancla o sujeta una banda para crear tensión con los brazos, eleva rodillas a 90 grados y extiende lentamente una pierna sin perder la posición de la pelvis. Regresa y alterna lados manteniendo respiración controlada.',
+    images: [],
+    videoUrl: youtubeSearch('dead bug con banda tecnica'),
+  },
+  'Bird Dog': {
+    instructions:
+      'Colócate en cuatro puntos con manos bajo hombros y rodillas bajo caderas. Extiende un brazo y la pierna contraria hasta formar una línea larga, pausa un segundo y vuelve sin girar la cadera. Alterna lados manteniendo abdomen activo y cuello neutro.',
+    images: [],
+    videoUrl: youtubeSearch('bird dog ejercicio tecnica'),
+  },
+  'Plancha Lateral': {
+    instructions:
+      'Apóyate sobre un antebrazo y el borde externo del pie, con hombro, cadera y tobillo alineados. Eleva la cadera y mantén el abdomen firme sin rotar el torso. Si es muy demandante, apoya rodillas y conserva la misma línea del tronco.',
+    images: [],
+    videoUrl: youtubeSearch('plancha lateral tecnica'),
+  },
+  'Balance en Bosu': {
+    instructions:
+      'Párate sobre el bosu con ambos pies y rodillas ligeramente flexionadas. Mantén el abdomen activo, mirada al frente y peso distribuido en el centro del pie. Busca estabilidad sin bloquear rodillas; progresa moviendo brazos o cerrando un poco la base de apoyo.',
+    images: [],
+    videoUrl: youtubeSearch('balance en bosu ejercicio tecnica'),
+  },
+  'Equilibrio Unipodal en Bosu': {
+    instructions:
+      'Coloca un pie al centro del bosu y eleva suavemente el otro. Mantén rodilla alineada con segundo y tercer dedo del pie, cadera nivelada y abdomen activo. Empieza cerca de una pared o soporte, acumulando segundos de control antes de aumentar dificultad.',
+    images: [],
+    videoUrl: youtubeSearch('equilibrio unipodal bosu tecnica'),
   },
   'Landmine Rotation': {
     instructions:
@@ -432,10 +473,34 @@ export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
       'Siéntate en la máquina de prensa horizontal con la espalda completamente apoyada y los pies en la plataforma a la anchura de los hombros. Empuja la plataforma extendiendo las rodillas sin bloquearlas del todo. Regresa controladamente sin dejar que el peso descanse entre repeticiones.',
     images: [],
   },
+  'Puente de Glúteo con Banda': {
+    instructions:
+      'Acuéstate boca arriba con rodillas flexionadas y una banda alrededor de los muslos. Mantén las rodillas empujando suavemente hacia afuera, eleva la cadera apretando glúteos y pausa arriba. Baja controlado sin perder tensión en la banda.',
+    images: [],
+    videoUrl: youtubeSearch('puente de gluteo con banda tecnica'),
+  },
+  'Caminata Lateral con Banda': {
+    instructions:
+      'Coloca una minibanda sobre rodillas o tobillos. Flexiona ligeramente rodillas y cadera, mantén el torso estable y da pasos laterales cortos sin juntar completamente los pies. Conserva tensión constante en la banda.',
+    images: [],
+    videoUrl: youtubeSearch('caminata lateral con banda tecnica'),
+  },
+  'Monster Walk con Banda': {
+    instructions:
+      'Con una minibanda sobre rodillas o tobillos, adopta una postura atlética con cadera atrás. Camina en diagonal hacia adelante con pasos cortos, manteniendo rodillas alineadas y tensión en la banda. Repite hacia atrás sin colapsar las rodillas.',
+    images: [],
+    videoUrl: youtubeSearch('monster walk con banda tecnica'),
+  },
+  'TKE con Banda': {
+    instructions:
+      'Ancla una banda detrás de la rodilla y da un paso atrás para crear tensión. Con el pie apoyado, flexiona ligeramente la rodilla y luego extiéndela empujando la parte posterior de la rodilla contra la banda. Pausa arriba contrayendo el cuádriceps sin dolor.',
+    images: [],
+    videoUrl: youtubeSearch('terminal knee extension band TKE tecnica'),
+  },
 
   // ─── VIAJE & BANDAS (generado desde bandExercises.ts) ──────
   ...Object.fromEntries(
-    BAND_EXERCISES.map(e => [e.name, { instructions: e.instructions, images: e.images }])
+    BAND_EXERCISES.map(e => [e.name, { instructions: e.instructions, images: e.images, videoUrl: e.videoUrl }])
   ),
 };
 
@@ -524,10 +589,20 @@ export const ES_TO_EN: Record<string, string> = {
   'Elevación Piernas Colgado': 'Hanging Leg Raise',
   'Rueda Abdominal': 'Ab Wheel',
   'Press Pallof': 'Pallof Press',
+  'Pallof Press con Banda': 'Pallof Press con Banda',
+  'Dead Bug con Banda': 'Dead Bug con Banda',
+  'Bird Dog': 'Bird Dog',
+  'Plancha Lateral': 'Plancha Lateral',
+  'Balance en Bosu': 'Balance en Bosu',
+  'Equilibrio Unipodal en Bosu': 'Equilibrio Unipodal en Bosu',
   'Rotación con Landmine': 'Landmine Rotation',
   'Elevación Talones de Pie': 'Standing Calf Raise',
   'Elevación Talones Sentado': 'Seated Calf Raise',
   'Elevación Talones en Prensa': 'Leg Press Calf Raise',
+  'Puente de Glúteo con Banda': 'Puente de Glúteo con Banda',
+  'Caminata Lateral con Banda': 'Caminata Lateral con Banda',
+  'Monster Walk con Banda': 'Monster Walk con Banda',
+  'TKE con Banda': 'TKE con Banda',
 };
 
 /** Look up catalog entry by exercise name (Spanish or English) */
