@@ -31,19 +31,26 @@ function AppRouter() {
       setHasProfile(null);
       return;
     }
+    let cancelled = false;
     setShowAuth(false);
+    setCheckingProfile(true);
+    setHasProfile(null);
     supabase
       .from('profiles')
       .select('id')
       .eq('id', user.id)
       .maybeSingle()
       .then(({ data }) => {
+        if (cancelled) return;
         setHasProfile(!!data);
         setCheckingProfile(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
-  if (loading || checkingProfile) {
+  if (loading || checkingProfile || (user && hasProfile === null)) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--paper)' }}>
         <div style={{ width: 32, height: 32, border: '2px solid var(--rule)', borderTopColor: 'var(--ink)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
@@ -73,7 +80,7 @@ function AppRouter() {
     );
   }
 
-  if (!hasProfile) {
+  if (hasProfile === false) {
     return <OnboardingWizard onComplete={() => setHasProfile(true)} />;
   }
 
