@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useBreakpoint';
 import ProgramView from './ProgramView';
@@ -12,6 +12,22 @@ import { Plus, X, Home, Calendar, TrendingUp, Dumbbell } from 'lucide-react';
 
 export type Tab = 'dashboard' | 'program' | 'progress' | 'library';
 export type Scene = 'app' | 'session';
+
+function activeSessionSceneKey(userId: string) {
+  return `active_session_scene_${userId}`;
+}
+
+function readActiveSessionScene(userId?: string): Scene {
+  if (!userId || typeof window === 'undefined') return 'app';
+  try {
+    const saved = localStorage.getItem(activeSessionSceneKey(userId));
+    if (!saved) return 'app';
+    const parsed = JSON.parse(saved) as { scene?: Scene; kind?: string };
+    return parsed.scene === 'session' && parsed.kind === 'program' ? 'session' : 'app';
+  } catch {
+    return 'app';
+  }
+}
 
 const NAV: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'dashboard', label: 'Hoy',       Icon: Home },
@@ -59,23 +75,53 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
   const { signOut, user } = useAuth();
   const isMobile = useIsMobile();
   const [tab, setTab] = useState<Tab>('dashboard');
-  const [scene, setScene] = useState<Scene>('app');
+  const [scene, setScene] = useState<Scene>(() => readActiveSessionScene(user?.id));
   const [travelDraft, setTravelDraft] = useState<SessionLogEntry[] | null>(null);
   const [travelContext, setTravelContext] = useState<TravelDayContext | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const initial = user?.email?.[0]?.toUpperCase() ?? 'U';
 
+  useEffect(() => {
+    setScene(readActiveSessionScene(user?.id));
+    setTravelDraft(null);
+    setTravelContext(null);
+  }, [user?.id]);
+
+  const clearActiveSessionScene = () => {
+    if (!user) return;
+    localStorage.removeItem(activeSessionSceneKey(user.id));
+  };
+
   const goToSession = (draft?: SessionLogEntry[] | null, context?: TravelDayContext) => {
-    if (draft) { setTravelDraft(draft); setTravelContext(context ?? null); }
-    else { setTravelDraft(null); setTravelContext(null); }
+    if (draft) {
+      setTravelDraft(draft);
+      setTravelContext(context ?? null);
+      clearActiveSessionScene();
+    } else {
+      setTravelDraft(null);
+      setTravelContext(null);
+      if (user) {
+        localStorage.setItem(activeSessionSceneKey(user.id), JSON.stringify({
+          scene: 'session',
+          kind: 'program',
+          updatedAt: Date.now(),
+        }));
+      }
+    }
     setScene('session');
+  };
+
+  const navigateFromSession = (t: Tab) => {
+    clearActiveSessionScene();
+    setScene('app');
+    setTab(t);
   };
 
   if (scene === 'session') {
     return (
       <SessionView
-        onNavigate={(t) => { setScene('app'); setTab(t); }}
+        onNavigate={navigateFromSession}
         travelDraft={travelDraft}
         travelContext={travelContext}
         onClearTravel={() => { setTravelDraft(null); setTravelContext(null); }}
@@ -164,7 +210,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
         </nav>
       )}
 
-      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} onLogout={() => { setSettingsOpen(false); signOut(); }} />
+      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} onLogout={() => { setSettingsOpen(false); clearActiveSessionScene(); signOut(); }} />
     </div>
   );
 }
