@@ -13,6 +13,7 @@ export default function ProgressView() {
   const isMobile = useIsMobile();
   const { sessions, weights, weeklyMetrics, liftSnapshots, summary, loading } = useProgressMetrics(user?.id);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const latestRecommendation = sessions.find((session) => session.notes)?.notes ?? null;
 
   if (loading) {
     return (
@@ -71,6 +72,15 @@ export default function ProgressView() {
       </div>
 
       {liftSnapshots.length > 0 && <ProgressWeightTable lifts={liftSnapshots} />}
+
+      {latestRecommendation && (
+        <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: isMobile ? 16 : 20, background: 'var(--paper-2)' }}>
+          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 8 }}>Última recomendación guardada</div>
+          <div className="body-s" style={{ whiteSpace: 'pre-line', lineHeight: 1.6 }}>
+            {latestRecommendation}
+          </div>
+        </div>
+      )}
 
       {/* Session history */}
       <ProgressSessionHistory

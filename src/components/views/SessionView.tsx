@@ -26,6 +26,7 @@ import {
 import { injuryAffectsExercise } from '../../engine/injuryExerciseRules';
 import { decideInjuryProgression } from '../../engine/injuryProgression';
 import { isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
+import { buildSessionProgressionNotes, type ProgressionResult } from '../../utils/sessionProgressionNotes';
 import { SessionTopBar } from './session/SessionTopBar';
 import { SessionHeaderCard } from './session/SessionHeaderCard';
 import { SessionTravelBanner } from './session/SessionTravelBanner';
@@ -51,16 +52,6 @@ export interface SessionLogEntry {
   target_reps_min?: number;
   target_reps_max?: number;
   target_rpe?: number;
-}
-
-type ProgressionAction = 'up' | 'keep' | 'warn';
-
-interface ProgressionResult {
-  exercise_name: string;
-  prev_weight: number;
-  next_weight: number;
-  action: ProgressionAction;
-  note?: string;
 }
 
 interface PreviousExercisePerformance {
@@ -235,6 +226,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
   const [replacementCandidates, setReplacementCandidates] = useState<ReplacementCandidate[]>([]);
   const [replaceLoading, setReplaceLoading] = useState(false);
   const [replaceError, setReplaceError] = useState<string | null>(null);
+  const [lastProgressionNote, setLastProgressionNote] = useState<string | null>(null);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -299,6 +291,17 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
 
       setHasProgram(true);
       const progress = await fetchProgramProgressState(userId, program);
+      const { data: previousSession } = await supabase
+        .from('sessions')
+        .select('notes')
+        .eq('user_id', userId)
+        .eq('program_id', program.id)
+        .not('block_num', 'is', null)
+        .not('notes', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setLastProgressionNote(previousSession?.notes ?? null);
 
       let daysSinceLast = 0;
       if (progress.lastSessionDate) {
@@ -762,6 +765,14 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
 
       const notable = progressions.filter(r => r.action !== 'keep');
       setProgressionResults(notable);
+      const sessionNotes = buildSessionProgressionNotes(notable);
+      if (sessionNotes) {
+        const { error: noteErr } = await supabase
+          .from('sessions')
+          .update({ notes: sessionNotes })
+          .eq('id', session.id);
+        if (noteErr) throw noteErr;
+      }
 
       localStorage.removeItem(sessionDraftKey(user.id));
       onClearTravel();
@@ -864,6 +875,15 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
             lineHeight: 1.5,
           }}>
             {saveError}
+          </div>
+        )}
+
+        {lastProgressionNote && !saved && !travelDraft && (
+          <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: isMobile ? 16 : 20, background: 'var(--paper-2)' }}>
+            <div className="uc" style={{ color: 'var(--muted)', marginBottom: 8 }}>Ajustes de la sesión anterior</div>
+            <div className="body-s" style={{ whiteSpace: 'pre-line', color: 'var(--ink)', lineHeight: 1.6 }}>
+              {lastProgressionNote}
+            </div>
           </div>
         )}
 

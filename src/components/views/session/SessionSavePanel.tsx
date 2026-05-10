@@ -1,17 +1,6 @@
 import { Check, Loader2, Save, Plus } from 'lucide-react';
-
-type ProgressionAction = 'up' | 'keep' | 'warn';
-
-interface ProgressionResult {
-  exercise_name: string;
-  prev_weight: number;
-  next_weight: number;
-  action: ProgressionAction;
-  note?: string;
-}
-
-const KG_TO_LBS = 2.20462;
-function kgToLbs(kg: number): number { return Math.round(kg * KG_TO_LBS); }
+import type { ProgressionResult } from '../../../utils/sessionProgressionNotes';
+import { kgToLbs } from '../../../utils/sessionProgressionNotes';
 
 interface SessionSavePanelProps {
   canSave: boolean;
