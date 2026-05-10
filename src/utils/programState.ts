@@ -45,6 +45,12 @@ type ProgressSessionRow = {
   logs?: Array<{ id: string }>;
 };
 
+export type CompletedProgramSlotSet = Set<string>;
+
+export function programSlotKey(weekNum: number, dayNum: number): string {
+  return `${weekNum}:${dayNum}`;
+}
+
 export function getBlockInfo(week: number): { blockNum: number; blockName: string } {
   if (week <= 4) return { blockNum: 1, blockName: 'Volumen' };
   if (week <= 8) return { blockNum: 2, blockName: 'Intensidad' };
@@ -159,14 +165,17 @@ export async function fetchProgramProgressState(
   const hasScheduledSlots = completedSessions.some((session) =>
     typeof session.week_num === 'number' && typeof session.day_num === 'number'
   );
-  const sessionCount = hasScheduledSlots
+  const completedSlotKeys = hasScheduledSlots
     ? new Set(
         completedSessions
           .filter((session) => typeof session.week_num === 'number' && typeof session.day_num === 'number')
-          .map((session) => `${session.week_num}:${session.day_num}`)
-      ).size
+          .map((session) => programSlotKey(session.week_num as number, session.day_num as number))
+      )
+    : null;
+  const sessionCount = hasScheduledSlots
+    ? completedSlotKeys?.size ?? 0
     : completedSessions.length;
-  return deriveProgramProgressState(program, sessionCount, lastSessionRes.data?.date ?? null);
+  return deriveProgramProgressState(program, sessionCount, lastSessionRes.data?.date ?? null, completedSlotKeys);
 }
 
 function fetchProgressSessions(userId: string, programCreatedAt: string, includeDayNum: boolean) {
@@ -182,16 +191,35 @@ function fetchProgressSessions(userId: string, programCreatedAt: string, include
 export function deriveProgramProgressState(
   program: Pick<Program, 'total_days' | 'total_weeks'>,
   sessionCount: number,
-  lastSessionDate: string | null = null
+  lastSessionDate: string | null = null,
+  completedSlotKeys: CompletedProgramSlotSet | null = null,
 ): ProgramProgressState {
   const totalWeeks = program.total_weeks ?? 12;
   const totalDays = Math.max(program.total_days, 1);
   const totalProgramSessions = totalDays * totalWeeks;
   const programComplete = sessionCount >= totalProgramSessions;
-  const completedWeeks = Math.floor(sessionCount / totalDays);
-  const unclampedWeek = completedWeeks + 1;
-  const currentWeek = programComplete ? totalWeeks : Math.min(unclampedWeek, totalWeeks);
-  const currentDay = programComplete ? totalDays : (sessionCount % totalDays) + 1;
+
+  let currentWeek: number;
+  let currentDay: number;
+  if (!programComplete && completedSlotKeys) {
+    currentWeek = totalWeeks;
+    currentDay = totalDays;
+
+    for (let week = 1; week <= totalWeeks; week += 1) {
+      const firstPendingDay = Array.from({ length: totalDays }, (_, index) => index + 1)
+        .find((day) => !completedSlotKeys.has(programSlotKey(week, day)));
+      if (firstPendingDay) {
+        currentWeek = week;
+        currentDay = firstPendingDay;
+        break;
+      }
+    }
+  } else {
+    const completedWeeks = Math.floor(sessionCount / totalDays);
+    const unclampedWeek = completedWeeks + 1;
+    currentWeek = programComplete ? totalWeeks : Math.min(unclampedWeek, totalWeeks);
+    currentDay = programComplete ? totalDays : (sessionCount % totalDays) + 1;
+  }
   const { blockNum, blockName } = getBlockInfo(currentWeek);
 
   return {
@@ -203,4 +231,27 @@ export function deriveProgramProgressState(
     programComplete,
     lastSessionDate,
   };
+}
+
+export async function fetchCompletedProgramSlots(
+  userId: string,
+  program: Pick<Program, 'created_at'>
+): Promise<CompletedProgramSlotSet> {
+  const initialSessionsRes = await fetchProgressSessions(userId, program.created_at, true);
+  const sessionsRes = initialSessionsRes.error && /day_num/.test(initialSessionsRes.error.message)
+    ? await fetchProgressSessions(userId, program.created_at, false)
+    : initialSessionsRes;
+  if (sessionsRes.error) throw sessionsRes.error;
+
+  const sessions = (sessionsRes.data ?? []) as unknown as ProgressSessionRow[];
+  return new Set(
+    sessions
+      .filter((session) =>
+        Array.isArray(session.logs)
+        && session.logs.length > 0
+        && typeof session.week_num === 'number'
+        && typeof session.day_num === 'number'
+      )
+      .map((session) => programSlotKey(session.week_num as number, session.day_num as number))
+  );
 }

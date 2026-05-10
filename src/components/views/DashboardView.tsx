@@ -18,12 +18,19 @@ import { parseAdjustmentWithAI } from '../../lib/openaiAdjust';
 import { fetchActiveInjuries } from '../../lib/injuryProfile';
 import { fetchPendingInjuryCheckin, submitInjuryCheckin, type PendingInjuryCheckin } from '../../lib/injuryCheckins';
 import { Loader2 } from 'lucide-react';
-import type { Tab } from '../MainShell';
+import type { ProgramSessionSelection, Tab } from '../MainShell';
 import type { UserInjury } from '../../types';
 import { HeroSession } from '../forge/HeroSession';
 import { AdjustWithAI } from '../forge/AdjustWithAI';
 import { ContextCards } from '../forge/ContextCards';
-import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
+import {
+  fetchCompletedProgramSlots,
+  fetchProgramDayForWeekOrFallback,
+  fetchProgramProgressState,
+  fetchProgramWeekDaysOrFallback,
+  normalizeProgramDayExercise,
+  programSlotKey,
+} from '../../utils/programState';
 import { replaceExerciseInProgram } from '../../utils/programExerciseMutations';
 import { DashboardProgramCompleteBanner } from './dashboard/DashboardProgramCompleteBanner';
 import { DashboardReplaceExerciseCard } from './dashboard/DashboardReplaceExerciseCard';
@@ -31,6 +38,8 @@ import { DashboardTravelModeCard } from './dashboard/DashboardTravelModeCard';
 import { DashboardProgramLinkCard } from './dashboard/DashboardProgramLinkCard';
 import { DashboardTravelSetupModal } from './dashboard/DashboardTravelSetupModal';
 import { DashboardReplaceExerciseModal } from './dashboard/DashboardReplaceExerciseModal';
+import { DashboardSwitchDayCard } from './dashboard/DashboardSwitchDayCard';
+import { DashboardSwitchDayModal } from './dashboard/DashboardSwitchDayModal';
 import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
 
 // ─── Types ────────────────────────────────────────────────
@@ -77,10 +86,18 @@ interface TrainingContext {
   injuries?: UserInjury[] | null;
 }
 
+interface PendingProgramDay {
+  id: string;
+  day_number: number;
+  day_name: string;
+  exerciseCount: number;
+  isCurrent: boolean;
+}
+
 // ─── Component ────────────────────────────────────────────
 interface DashboardViewProps {
   onNavigate: (t: Tab) => void;
-  onStartSession: () => void;
+  onStartSession: (selection?: ProgramSessionSelection | null) => void;
   onStartTravel: (d: SessionLogEntry[], context: TravelDayContext) => void;
 }
 
@@ -218,10 +235,13 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [nextDayName, setNextDayName] = useState<string | null>(null);
   const [nextDayNum, setNextDayNum] = useState<number | null>(null);
   const [nextDayId, setNextDayId] = useState<string | null>(null);
+  const [pendingProgramDays, setPendingProgramDays] = useState<PendingProgramDay[]>([]);
+  const [showSwitchDayModal, setShowSwitchDayModal] = useState(false);
   const [programId, setProgramId] = useState<string | null>(null);
   const [currentWeek, setCurrentWeek] = useState(1);
   const [programComplete, setProgramComplete] = useState(false);
   const [completedWeeks, setCompletedWeeks] = useState(0);
+  const [weeklyCompletedCount, setWeeklyCompletedCount] = useState(0);
   const [todayExercises, setTodayExercises] = useState<ProgramDayExercise[]>([]);
   const [trainingContext, setTrainingContext] = useState<TrainingContext | null>(null);
   const [pendingCheckin, setPendingCheckin] = useState<PendingInjuryCheckin | null>(null);
@@ -293,15 +313,42 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           console.error('[DashboardView] Week generation failed:', error);
           setProgramLoadError(`No se pudo generar la semana ${weekNum}. Evitamos mostrarte una rutina vieja para que no entrenes con el detalle incorrecto.`);
         }
-        const dayResult = await fetchProgramDayForWeekOrFallback(pRes.data.id, weekNum, dayNum);
+        const [weekResult, completedSlots] = await Promise.all([
+          fetchProgramWeekDaysOrFallback(pRes.data.id, weekNum),
+          fetchCompletedProgramSlots(userId, pRes.data),
+        ]);
+        const pendingDays = weekResult.days
+          .filter((day) => !completedSlots.has(programSlotKey(weekNum, day.day_number)))
+          .map((day) => ({
+            id: day.id,
+            day_number: day.day_number,
+            day_name: day.day_name,
+            exerciseCount: Array.isArray(day.exercises) ? day.exercises.length : 0,
+            isCurrent: day.day_number === dayNum,
+          }));
+        setWeeklyCompletedCount(
+          weekResult.days.filter((day) => completedSlots.has(programSlotKey(weekNum, day.day_number))).length
+        );
+        setPendingProgramDays(pendingDays);
+
+        const selectedDayNum = pendingDays.some((day) => day.day_number === dayNum)
+          ? dayNum
+          : pendingDays[0]?.day_number ?? dayNum;
+        const dayResult = {
+          day: weekResult.days.find((day) => day.day_number === selectedDayNum) ?? null,
+          sourceWeek: weekResult.sourceWeek,
+          isFallback: weekResult.isFallback,
+        };
 
         if (dayResult.day && !(generationFailed && dayResult.isFallback && dayResult.sourceWeek !== weekNum)) {
           setNextDayName(dayResult.day.day_name);
           setNextDayId(dayResult.day.id);
+          setNextDayNum(dayResult.day.day_number);
           setTodayExercises(dayResult.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise)));
         } else if (generationFailed) {
           setNextDayName(null);
           setNextDayId(null);
+          setPendingProgramDays([]);
           setTodayExercises([]);
         }
       }
@@ -332,6 +379,25 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     } catch {
       toast.error('No se pudo guardar el check-in.');
     }
+  };
+
+  const handleSwitchDay = async (dayNum: number) => {
+    if (!programId) return;
+    const dayResult = await fetchProgramDayForWeekOrFallback(programId, currentWeek, dayNum);
+    if (!dayResult.day) {
+      toast.error('No se pudo cargar esa sesión.');
+      return;
+    }
+
+    setNextDayName(dayResult.day.day_name);
+    setNextDayId(dayResult.day.id);
+    setNextDayNum(dayResult.day.day_number);
+    setTodayExercises(dayResult.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise)));
+    setOriginalExercises(null);
+    setAdjustedSummary(null);
+    if (user) localStorage.removeItem(sessionDraftKey(user.id));
+    setShowSwitchDayModal(false);
+    toast.success(`Sesión de hoy cambiada a ${dayResult.day.day_name}`);
   };
 
   const handleAdjust = async () => {
@@ -588,7 +654,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
   const weekNum = currentWeek;
   const blockName = weekNum <= 4 ? 'Volumen' : weekNum <= 8 ? 'Intensidad' : weekNum <= 11 ? 'Pico' : 'Descarga';
-  const weeklyCompleted = Math.min(nextDayNum ? nextDayNum - 1 : 0, 7);
+  const weeklyCompleted = weeklyCompletedCount;
 
   if (loading) {
     return (
@@ -601,6 +667,9 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
 
   const sessionName = nextDayName || (programComplete ? 'Sesión libre' : 'Tu rutina');
   const lastSession = sessions[0] ?? null;
+  const selectedProgramSession = programId && nextDayNum && nextDayName
+    ? { programId, weekNum: currentWeek, dayNum: nextDayNum, dayName: nextDayName }
+    : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -633,7 +702,7 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         sessionName={sessionName}
         exerciseCount={todayExercises.length}
         duration={todayExercises.length > 0 ? estimateDuration(todayExercises.length) : undefined}
-        onStart={onStartSession}
+        onStart={() => onStartSession(selectedProgramSession)}
         isAdjusting={adjusting}
         adjustedSummary={adjustedSummary}
         onRevert={originalExercises ? handleRevert : undefined}
@@ -651,6 +720,14 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         }}>
           {programLoadError}
         </div>
+      )}
+
+      {todayExercises.length > 0 && !programComplete && (
+        <DashboardSwitchDayCard
+          selectedDayName={nextDayName}
+          pendingCount={pendingProgramDays.length}
+          onClick={() => setShowSwitchDayModal(true)}
+        />
       )}
 
       {todayExercises.length > 0 && !programComplete && <DashboardReplaceExerciseCard onClick={openReplaceModal} />}
@@ -732,6 +809,14 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
           setReplaceError(null);
         }}
         onApplyReplacement={applyPersistentReplacement}
+      />
+
+      <DashboardSwitchDayModal
+        isOpen={showSwitchDayModal}
+        onClose={() => setShowSwitchDayModal(false)}
+        pendingDays={pendingProgramDays}
+        selectedDayNum={nextDayNum}
+        onSelectDay={handleSwitchDay}
       />
     </div>
   );
