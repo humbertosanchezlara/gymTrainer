@@ -25,6 +25,7 @@ import { SessionAlertBanner } from './session/SessionAlertBanner';
 import { SessionRpeGuide } from './session/SessionRpeGuide';
 import { SessionExerciseCard } from './session/SessionExerciseCard';
 import { SessionSavePanel } from './session/SessionSavePanel';
+import { SessionProgressionGuide } from './session/SessionProgressionGuide';
 
 // ─── Types ────────────────────────────────────────────────
 export interface SessionLogEntry {
@@ -49,6 +50,13 @@ interface ProgressionResult {
   next_weight: number;
   action: ProgressionAction;
   note?: string;
+}
+
+interface PreviousExercisePerformance {
+  reps: number;
+  weight: number;
+  rpe: number | null;
+  sessionName: string;
 }
 
 interface SessionDraft {
@@ -110,6 +118,40 @@ function computeProgression(log: SessionLogEntry): ProgressionResult {
   return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'keep' };
 }
 
+async function fetchLatestExercisePerformances(
+  userId: string,
+  programCreatedAt: string,
+  exerciseIds: string[]
+): Promise<Map<string, PreviousExercisePerformance>> {
+  const uniqueIds = [...new Set(exerciseIds.filter(Boolean))];
+  const latestByExercise = new Map<string, PreviousExercisePerformance>();
+  if (uniqueIds.length === 0) return latestByExercise;
+
+  const { data } = await supabase
+    .from('sessions')
+    .select('name, created_at, logs:session_logs(exercise_id, reps_per_set, weight, rpe)')
+    .eq('user_id', userId)
+    .gte('created_at', programCreatedAt)
+    .not('block_num', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(60);
+
+  for (const session of data ?? []) {
+    const logs = Array.isArray(session.logs) ? session.logs : [];
+    for (const log of logs) {
+      if (!uniqueIds.includes(log.exercise_id) || latestByExercise.has(log.exercise_id)) continue;
+      latestByExercise.set(log.exercise_id, {
+        reps: Number(log.reps_per_set) || 0,
+        weight: Number(log.weight) || 0,
+        rpe: log.rpe === null || log.rpe === undefined ? null : Number(log.rpe),
+        sessionName: session.name || 'Última sesión',
+      });
+    }
+  }
+
+  return latestByExercise;
+}
+
 // ─── Component ────────────────────────────────────────────
 interface SessionViewProps {
   onNavigate: (t: Tab) => void;
@@ -152,6 +194,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
   const [totalDays, setTotalDays] = useState<number>(0);
   const [currentSessCount, setCurrentSessCount] = useState<number>(0);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [latestPerformance, setLatestPerformance] = useState<Map<string, PreviousExercisePerformance>>(new Map());
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -227,6 +270,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         setBlockNum(0);
         setBlockName('Fuera del Gym');
         setLogs(travelDraft);
+        setLatestPerformance(new Map());
         setLoadingProgram(false);
         setHasProgram(true);
         draftRestoredRef.current = true;
@@ -245,6 +289,12 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
             } else {
               setSessionName(draft.sessionName);
               setLogs(draft.logs);
+              const performance = await fetchLatestExercisePerformances(
+                userId,
+                program.created_at,
+                draft.logs.map((log) => log.exercise_id)
+              );
+              setLatestPerformance(performance);
               setLoadingProgram(false);
               draftRestoredRef.current = true;
               return;
@@ -320,10 +370,17 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
           };
         });
 
+        const performance = await fetchLatestExercisePerformances(
+          userId,
+          program.created_at,
+          preFilled.map((log) => log.exercise_id)
+        );
+        setLatestPerformance(performance);
         setLogs(preFilled);
       } else if (generationFailed) {
         setSessionName('');
         setLogs([]);
+        setLatestPerformance(new Map());
       }
 
       setLoadingProgram(false);
@@ -608,6 +665,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         )}
 
         {/* RPE reference */}
+        {hasProgram && !travelDraft && <SessionProgressionGuide />}
         <SessionRpeGuide />
 
         {/* ── Exercise log cards ──────────────────────────────── */}
@@ -619,6 +677,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
             exercises={exercises}
             isMobile={isMobile}
             isTravelDraft={Boolean(travelDraft)}
+            previousPerformance={latestPerformance.get(log.exercise_id) ?? null}
             confirmDelete={confirmDeleteIdx === i}
             onShowTechnique={setDetailExercise}
             onAskDelete={setConfirmDeleteIdx}

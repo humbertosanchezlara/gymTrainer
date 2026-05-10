@@ -22,6 +22,13 @@ interface SessionLogEntry {
   target_rpe?: number;
 }
 
+interface PreviousExercisePerformance {
+  reps: number;
+  weight: number;
+  rpe: number | null;
+  sessionName: string;
+}
+
 interface WeightCellProps {
   kg: number;
   isMobile: boolean;
@@ -130,10 +137,31 @@ function getRpeHint(rpe: number) {
   return 'quedan 4+ reps';
 }
 
-function getProgressionHint(log: SessionLogEntry): string | null {
+function formatKg(kg: number): string {
+  return Number.isInteger(kg) ? `${kg}` : `${kg.toFixed(1)}`;
+}
+
+function getProgressionHint(log: SessionLogEntry, previousPerformance: PreviousExercisePerformance | null): string | null {
   const { reps_per_set, rpe, target_reps_min, target_reps_max, target_rpe } = log;
 
   if (!target_reps_max) return null;
+
+  if (previousPerformance) {
+    if (target_reps_min && previousPerformance.reps < target_reps_min) {
+      return `Hoy busca al menos ${target_reps_min} reps con buena forma.`;
+    }
+
+    if (previousPerformance.reps < target_reps_max) {
+      const nextRepTarget = Math.min(previousPerformance.reps + 1, target_reps_max);
+      return `Mantén ${formatKg(log.weight)} kg. Hoy busca ${nextRepTarget} reps.`;
+    }
+
+    if (target_rpe && previousPerformance.rpe !== null && previousPerformance.rpe > target_rpe) {
+      return `Mantén ${formatKg(log.weight)} kg hasta que se sienta en RPE ${target_rpe} o menos.`;
+    }
+
+    return `Hoy prueba ${formatKg(log.weight)} kg. Si completas el rango con buen RPE, se guarda como tu nuevo peso.`;
+  }
 
   if (target_reps_min && reps_per_set < target_reps_min) {
     return `Peso alto: busca al menos ${target_reps_min} reps con buena forma.`;
@@ -157,6 +185,7 @@ interface SessionExerciseCardProps {
   exercises: Exercise[];
   isMobile: boolean;
   isTravelDraft: boolean;
+  previousPerformance: PreviousExercisePerformance | null;
   confirmDelete: boolean;
   onShowTechnique: (name: string) => void;
   onAskDelete: (index: number) => void;
@@ -171,6 +200,7 @@ export function SessionExerciseCard({
   exercises,
   isMobile,
   isTravelDraft,
+  previousPerformance,
   confirmDelete,
   onShowTechnique,
   onAskDelete,
@@ -178,7 +208,7 @@ export function SessionExerciseCard({
   onRemove,
   onUpdate,
 }: SessionExerciseCardProps) {
-  const progressionHint = getProgressionHint(log);
+  const progressionHint = getProgressionHint(log, previousPerformance);
   const repsTargetLabel = log.target_reps_max
     ? log.target_reps_min && log.target_reps_min !== log.target_reps_max
       ? `${log.target_reps_min}-${log.target_reps_max} reps`
@@ -361,6 +391,9 @@ export function SessionExerciseCard({
               Progresión
             </span>
             <span className="caption" style={{ color: 'var(--muted)', lineHeight: 1.4, textAlign: isMobile ? 'left' : 'right' }}>
+              {previousPerformance
+                ? `Última vez: ${formatKg(previousPerformance.weight)} kg x ${previousPerformance.reps}${previousPerformance.rpe ? ` @ RPE ${previousPerformance.rpe}` : ''}. `
+                : ''}
               {repsTargetLabel ? `Objetivo ${repsTargetLabel}. ` : ''}{progressionHint}
             </span>
           </div>
