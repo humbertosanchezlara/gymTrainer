@@ -13,6 +13,19 @@ import { Plus, X, Home, Calendar, TrendingUp, Dumbbell } from 'lucide-react';
 export type Tab = 'dashboard' | 'program' | 'progress' | 'library';
 export type Scene = 'app' | 'session';
 
+export interface ProgramSessionSelection {
+  programId: string;
+  weekNum: number;
+  dayNum: number;
+  dayName: string;
+}
+
+interface ActiveSessionSceneState {
+  scene?: Scene;
+  kind?: string;
+  programSelection?: ProgramSessionSelection | null;
+}
+
 function activeSessionSceneKey(userId: string) {
   return `active_session_scene_${userId}`;
 }
@@ -22,11 +35,35 @@ function readActiveSessionScene(userId?: string): Scene {
   try {
     const saved = localStorage.getItem(activeSessionSceneKey(userId));
     if (!saved) return 'app';
-    const parsed = JSON.parse(saved) as { scene?: Scene; kind?: string };
+    const parsed = JSON.parse(saved) as ActiveSessionSceneState;
     return parsed.scene === 'session' && parsed.kind === 'program' ? 'session' : 'app';
   } catch {
     return 'app';
   }
+}
+
+function readActiveProgramSelection(userId?: string): ProgramSessionSelection | null {
+  if (!userId || typeof window === 'undefined') return null;
+  try {
+    const saved = localStorage.getItem(activeSessionSceneKey(userId));
+    if (!saved) return null;
+    const parsed = JSON.parse(saved) as ActiveSessionSceneState;
+    const selection = parsed.scene === 'session' && parsed.kind === 'program'
+      ? parsed.programSelection
+      : null;
+    if (
+      selection
+      && typeof selection.programId === 'string'
+      && typeof selection.weekNum === 'number'
+      && typeof selection.dayNum === 'number'
+      && typeof selection.dayName === 'string'
+    ) {
+      return selection;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 const NAV: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
@@ -76,6 +113,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [scene, setScene] = useState<Scene>(() => readActiveSessionScene(user?.id));
+  const [programSelection, setProgramSelection] = useState<ProgramSessionSelection | null>(() => readActiveProgramSelection(user?.id));
   const [travelDraft, setTravelDraft] = useState<SessionLogEntry[] | null>(null);
   const [travelContext, setTravelContext] = useState<TravelDayContext | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -84,6 +122,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
 
   useEffect(() => {
     setScene(readActiveSessionScene(user?.id));
+    setProgramSelection(readActiveProgramSelection(user?.id));
     setTravelDraft(null);
     setTravelContext(null);
   }, [user?.id]);
@@ -93,18 +132,25 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
     localStorage.removeItem(activeSessionSceneKey(user.id));
   };
 
-  const goToSession = (draft?: SessionLogEntry[] | null, context?: TravelDayContext) => {
+  const goToSession = (
+    draft?: SessionLogEntry[] | null,
+    context?: TravelDayContext,
+    selection?: ProgramSessionSelection | null,
+  ) => {
     if (draft) {
       setTravelDraft(draft);
       setTravelContext(context ?? null);
+      setProgramSelection(null);
       clearActiveSessionScene();
     } else {
       setTravelDraft(null);
       setTravelContext(null);
+      setProgramSelection(selection ?? null);
       if (user) {
         localStorage.setItem(activeSessionSceneKey(user.id), JSON.stringify({
           scene: 'session',
           kind: 'program',
+          programSelection: selection ?? null,
           updatedAt: Date.now(),
         }));
       }
@@ -114,6 +160,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
 
   const navigateFromSession = (t: Tab) => {
     clearActiveSessionScene();
+    setProgramSelection(null);
     setScene('app');
     setTab(t);
   };
@@ -124,6 +171,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
         onNavigate={navigateFromSession}
         travelDraft={travelDraft}
         travelContext={travelContext}
+        programSelection={programSelection}
         onClearTravel={() => { setTravelDraft(null); setTravelContext(null); }}
       />
     );
@@ -184,7 +232,7 @@ export default function MainShell({ onProgramDeleted }: MainShellProps) {
         padding: isMobile ? '20px 16px 90px' : '32px',
         minHeight: `calc(100vh - ${isMobile ? 56 : 64}px)`,
       }}>
-        {tab === 'dashboard' && <DashboardView onNavigate={setTab} onStartSession={() => goToSession()} onStartTravel={(draft, ctx) => goToSession(draft, ctx)} />}
+        {tab === 'dashboard' && <DashboardView onNavigate={setTab} onStartSession={(selection) => goToSession(null, undefined, selection)} onStartTravel={(draft, ctx) => goToSession(draft, ctx)} />}
         {tab === 'program'   && <ProgramView />}
         {tab === 'progress'  && <ProgressView />}
         {tab === 'library'   && <LibraryView onProgramDeleted={onProgramDeleted} />}

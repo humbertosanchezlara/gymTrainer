@@ -12,9 +12,9 @@ import { ensureWeekGenerated, generateAndSaveNextWeek } from '../../lib/openaiPr
 import { fetchActiveInjuries } from '../../lib/injuryProfile';
 import { createPendingInjuryCheckins, fetchRecentInjuryCheckins } from '../../lib/injuryCheckins';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
-import type { Tab } from '../MainShell';
+import type { ProgramSessionSelection, Tab } from '../MainShell';
 import type { RangeStatus, UserInjury } from '../../types';
-import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, normalizeProgramDayExercise } from '../../utils/programState';
+import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, getBlockInfo, normalizeProgramDayExercise } from '../../utils/programState';
 import { injuryAffectsExercise } from '../../engine/injuryExerciseRules';
 import { decideInjuryProgression } from '../../engine/injuryProgression';
 import { SessionTopBar } from './session/SessionTopBar';
@@ -115,6 +115,7 @@ interface SessionViewProps {
   onNavigate: (t: Tab) => void;
   travelDraft: SessionLogEntry[] | null;
   travelContext: TravelDayContext | null;
+  programSelection: ProgramSessionSelection | null;
   onClearTravel: () => void;
 }
 
@@ -125,7 +126,7 @@ const BLOCKS = [
   { name: 'Descarga',   num: 4, desc: 'Volumen e intensidad bajos — recuperación' },
 ] as const;
 
-export default function SessionView({ onNavigate, travelDraft, travelContext, onClearTravel }: SessionViewProps) {
+export default function SessionView({ onNavigate, travelDraft, travelContext, programSelection, onClearTravel }: SessionViewProps) {
   const { user } = useAuth();
   const toast = useToast();
   const isMobile = useIsMobile();
@@ -200,9 +201,11 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
       }
 
       const sessCount = progress.sessionCount;
-      const currentDayNum = progress.currentDay;
-      const currentWeek = progress.currentWeek;
-      const { blockNum: bNum, blockName: bName } = progress;
+      const selectedProgramDay = programSelection?.programId === program.id ? programSelection : null;
+      const currentDayNum = selectedProgramDay?.dayNum ?? progress.currentDay;
+      const currentWeek = selectedProgramDay?.weekNum ?? progress.currentWeek;
+      const selectedBlock = selectedProgramDay ? getBlockInfo(selectedProgramDay.weekNum) : progress;
+      const { blockNum: bNum, blockName: bName } = selectedBlock;
 
       setDayNum(currentDayNum);
       setWeekNum(currentWeek);
@@ -328,7 +331,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, on
     };
 
     loadSession();
-  }, [user]);
+  }, [programSelection, travelContext, travelDraft, user]);
 
   const addLog = () => {
     setLogs([...logs, { exercise_id: '', exercise_name: '', sets: 3, reps_per_set: 8, weight: 0, rpe: 7, notes: '', range_status: 'unknown' }]);
