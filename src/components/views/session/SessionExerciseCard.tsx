@@ -17,6 +17,9 @@ interface SessionLogEntry {
   rpe: number;
   notes: string;
   range_status?: 'partial' | 'target' | 'unknown';
+  target_reps_min?: number;
+  target_reps_max?: number;
+  target_rpe?: number;
 }
 
 interface WeightCellProps {
@@ -127,6 +130,27 @@ function getRpeHint(rpe: number) {
   return 'quedan 4+ reps';
 }
 
+function getProgressionHint(log: SessionLogEntry): string | null {
+  const { reps_per_set, rpe, target_reps_min, target_reps_max, target_rpe } = log;
+
+  if (!target_reps_max) return null;
+
+  if (target_reps_min && reps_per_set < target_reps_min) {
+    return `Peso alto: busca al menos ${target_reps_min} reps con buena forma.`;
+  }
+
+  if (reps_per_set < target_reps_max) {
+    const nextRepTarget = Math.min(reps_per_set + 1, target_reps_max);
+    return `Mantén el peso. Próxima meta: ${nextRepTarget} reps.`;
+  }
+
+  if (target_rpe && rpe > target_rpe) {
+    return `Ya llegaste a reps. Mantén el peso hasta que el RPE sea ${target_rpe} o menos.`;
+  }
+
+  return 'Listo para subir peso al guardar.';
+}
+
 interface SessionExerciseCardProps {
   log: SessionLogEntry;
   index: number;
@@ -154,6 +178,13 @@ export function SessionExerciseCard({
   onRemove,
   onUpdate,
 }: SessionExerciseCardProps) {
+  const progressionHint = getProgressionHint(log);
+  const repsTargetLabel = log.target_reps_max
+    ? log.target_reps_min && log.target_reps_min !== log.target_reps_max
+      ? `${log.target_reps_min}-${log.target_reps_max} reps`
+      : `${log.target_reps_max} reps`
+    : null;
+
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 12, overflow: 'hidden' }}>
       <div
@@ -311,7 +342,31 @@ export function SessionExerciseCard({
         </div>
       </div>
 
-      <div style={{ padding: '8px 16px', borderTop: '1px solid var(--rule)', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+      <div style={{ padding: '8px 16px', borderTop: '1px solid var(--rule)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {progressionHint && (
+          <div
+            style={{
+              border: '1px solid var(--rule)',
+              borderRadius: 8,
+              padding: '8px 10px',
+              background: 'color-mix(in oklab, var(--paper), var(--ink) 3%)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>
+              Progresión
+            </span>
+            <span className="caption" style={{ color: 'var(--muted)', lineHeight: 1.4, textAlign: isMobile ? 'left' : 'right' }}>
+              {repsTargetLabel ? `Objetivo ${repsTargetLabel}. ` : ''}{progressionHint}
+            </span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>Rango</span>
           <select
@@ -327,6 +382,7 @@ export function SessionExerciseCard({
         <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>
           RPE {log.rpe} — {getRpeHint(log.rpe)}
         </span>
+        </div>
       </div>
     </div>
   );
