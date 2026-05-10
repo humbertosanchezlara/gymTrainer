@@ -95,9 +95,9 @@ function resolveExercise(
   usedIds: Set<string>,
   profile: ExerciseSuitabilityProfile,
 ): Exercise | null {
-  const available = exercises.filter(
+  const available = filterAccessoryFallbacks(slot, exercises.filter(
     (e) => e.category === slot.category && isExerciseEnabled(e.status) && !usedIds.has(e.id)
-  );
+  ));
   const bySuitability = (a: Exercise, b: Exercise) =>
     exerciseSuitabilityScore(b, profile) - exerciseSuitabilityScore(a, profile);
   const suitableAvailable = available
@@ -106,9 +106,9 @@ function resolveExercise(
 
   if (suitableAvailable.length === 0) {
     // Fallback: allow already-used exercises in this category
-    const fallback = exercises.filter(
+    const fallback = filterAccessoryFallbacks(slot, exercises.filter(
       (e) => e.category === slot.category && isExerciseEnabled(e.status) && isExerciseSuitableForProfile(e, profile)
-    ).sort(bySuitability);
+    )).sort(bySuitability);
     if (fallback.length === 0) return null;
     // If preferred, try to find it
     if (slot.preferredExercise) {
@@ -125,6 +125,21 @@ function resolveExercise(
   }
 
   return suitableAvailable[0];
+}
+
+function filterAccessoryFallbacks(slot: ExerciseSlot, candidates: Exercise[]): Exercise[] {
+  if (slot.role !== 'accessory') return candidates;
+  if (slot.category !== 'PUSH_VERTICAL' && slot.category !== 'PUSH_HORIZONTAL') return candidates;
+
+  const nonPressingAccessories = candidates.filter((exercise) => {
+    const name = exercise.name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    return !/press|banca|militar|landmine/.test(name);
+  });
+
+  return nonPressingAccessories.length > 0 ? nonPressingAccessories : candidates;
 }
 
 // ─── BMI Adjustments ────────────────────────────────────

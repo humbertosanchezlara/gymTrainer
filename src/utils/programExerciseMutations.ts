@@ -1,9 +1,13 @@
 import type { Exercise, ProgramDayExercise } from '../types';
-import { estimateWeight } from '../engine/weightEstimator';
 import { supabase } from '../lib/supabase';
 import { normalizeProgramDayExercise } from './programState';
 import { isExerciseSuitableForProfile } from '../engine/exerciseSuitability';
 import { fetchActiveInjuries } from '../lib/injuryProfile';
+import {
+  buildReplacementProgramExercise,
+  estimateReplacementWeight,
+  persistProgramExerciseReplacement,
+} from './programExerciseReplacements';
 
 interface ReplaceExerciseParams {
   userId: string;
@@ -19,36 +23,6 @@ interface ReplaceExerciseResult {
   replacement: Exercise;
   removed: Exercise;
   usedExistingWeight: boolean;
-}
-
-function stripCalibrationPrefix(notes: string): string {
-  return notes
-    .replace('Peso de calibración — ajusta después de la sesión 1 · ', '')
-    .replace('Peso de calibración — ajusta según tus sensaciones · ', '')
-    .replace('Peso de calibración — ', '');
-}
-
-function buildReplacementNotes(notes: string, needsCalibration: boolean): string {
-  const cleanNotes = stripCalibrationPrefix(notes);
-  if (!needsCalibration) return cleanNotes;
-  return cleanNotes ? `Peso de calibración — ${cleanNotes}` : 'Peso de calibración — ajusta según tus sensaciones';
-}
-
-function buildReplacementExercise(
-  current: ProgramDayExercise,
-  replacement: Exercise,
-  replacementWeight: number,
-  needsCalibration: boolean
-): ProgramDayExercise {
-  return {
-    ...current,
-    exercise_id: replacement.id,
-    exercise_name: replacement.name,
-    category: replacement.category,
-    weight: replacementWeight,
-    is_calibration: needsCalibration,
-    notes: buildReplacementNotes(current.notes, needsCalibration),
-  };
 }
 
 function normalizeText(value?: string | null): string {
@@ -121,17 +95,11 @@ export async function replaceExerciseInProgram({
   }
 
   const existingWeight = workingWeightRow?.weight ? Number(workingWeightRow.weight) : null;
-  const replacementWeight = existingWeight ?? (
-    Math.round(
-      estimateWeight(
-        replacement.name,
-        Number(profile?.bodyweight) || 75,
-        profile?.training_experience ?? 'intermediate',
-        profile?.gender ?? 'male'
-      ) / 2.5
-    ) * 2.5
+  const { weight: replacementWeight, needsCalibration } = estimateReplacementWeight(
+    replacement,
+    profile,
+    existingWeight === null ? undefined : new Map([[replacement.id, existingWeight]])
   );
-  const needsCalibration = existingWeight === null;
 
   const { data: futureDays, error: futureDaysError } = await supabase
     .from('program_days')
@@ -166,7 +134,7 @@ export async function replaceExerciseInProgram({
       if (exercise.exercise_id !== fromExerciseId) return [exercise];
       changed = true;
       if (alreadyHasReplacement) return [];
-      return [buildReplacementExercise(exercise, replacement, replacementWeight, needsCalibration)];
+      return [buildReplacementProgramExercise(exercise, replacement, replacementWeight, needsCalibration)];
     });
 
     if (!changed) continue;
@@ -187,6 +155,15 @@ export async function replaceExerciseInProgram({
 
   if (disableError) throw disableError;
   if (enableError) throw enableError;
+
+  await persistProgramExerciseReplacement({
+    userId,
+    programId,
+    fromExerciseId,
+    toExerciseId,
+    currentWeek,
+    compatibleCategories,
+  });
 
   return {
     updatedDayIds,

@@ -585,6 +585,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
           });
           const extraLogs = currentLogs.filter((log) => (
             log.exercise_id
+            && log.exercise_id !== selectedExercise.exercise_id
             && !previousProgramIds.has(log.exercise_id)
             && !refreshedIds.has(log.exercise_id)
           ));

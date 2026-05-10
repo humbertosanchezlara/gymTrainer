@@ -8,6 +8,10 @@ import {
 import { estimateWeight } from '../engine/weightEstimator';
 import { supabase } from './supabase';
 import { isExerciseEnabled } from '../utils/programState';
+import {
+  applyProgramExerciseReplacementRules,
+  fetchProgramExerciseReplacementRules,
+} from '../utils/programExerciseReplacements';
 import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../engine/exerciseSuitability';
 import { fetchActiveInjuries } from './injuryProfile';
 import { injuryGuidanceNote, isExerciseAllowedByInjuries } from '../engine/injuryExerciseRules';
@@ -143,6 +147,33 @@ function computeExerciseWeight(
   return roundToNearest2_5(baseWeight);
 }
 
+function filterAccessoryFallbacks(
+  role: string,
+  category: string,
+  candidates: Exercise[]
+): Exercise[] {
+  if (role !== 'accessory') return candidates;
+  if (category !== 'PUSH_VERTICAL' && category !== 'PUSH_HORIZONTAL') return candidates;
+
+  const nonPressingAccessories = candidates.filter((exercise) => {
+    const name = exercise.name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    return !/press|banca|militar|landmine/.test(name);
+  });
+
+  return nonPressingAccessories.length > 0 ? nonPressingAccessories : candidates;
+}
+
+function isAllowedForAccessorySlot(role: string, category: string, exercise: Exercise): boolean {
+  if (role !== 'accessory') return true;
+  if (category !== 'PUSH_VERTICAL' && category !== 'PUSH_HORIZONTAL') return true;
+
+  const filtered = filterAccessoryFallbacks(role, category, [exercise]);
+  return filtered.length > 0 && filtered[0].id === exercise.id;
+}
+
 function sanitizeGeneratedDays(params: {
   days: GeneratedDay[];
   exercises: Exercise[];
@@ -171,14 +202,21 @@ function sanitizeGeneratedDays(params: {
 
     const normalizedExercises = day.exercises.map((generatedExercise, exerciseIndex) => {
       const category = generatedExercise.category;
-      const categoryExercises = exercisesByCategory.get(category) ?? [];
+      const categoryExercises = filterAccessoryFallbacks(
+        generatedExercise.role,
+        category,
+        exercisesByCategory.get(category) ?? []
+      );
       const currentExercise = exerciseMap.get(generatedExercise.exercise_id);
       const hasValidCategory = currentExercise?.category === category;
       const hasSuitableExercise = currentExercise ? isExerciseSuitableForProfile(currentExercise, profile) : false;
+      const allowedForSlot = currentExercise
+        ? isAllowedForAccessorySlot(generatedExercise.role, category, currentExercise)
+        : false;
       const isDuplicate = usedIds.has(generatedExercise.exercise_id);
 
       let resolvedExercise =
-        hasValidCategory && hasSuitableExercise && !isDuplicate
+        hasValidCategory && hasSuitableExercise && allowedForSlot && !isDuplicate
           ? currentExercise ?? null
           : categoryExercises.find((candidate) => !usedIds.has(candidate.id)) ?? null;
 
@@ -604,7 +642,20 @@ export async function generateAndSaveNextWeek(
     previousSummary,
   });
 
-  const rows = result.days.map(d => ({
+  const replacementRules = await fetchProgramExerciseReplacementRules(programId, nextWeekNum);
+  const daysWithPersistentReplacements = applyProgramExerciseReplacementRules({
+    days: result.days,
+    rules: replacementRules,
+    exercises,
+    profile: {
+      bodyweight: Number(profile.bodyweight),
+      training_experience: profile.training_experience,
+      gender: profile.gender || 'male',
+    },
+    workingWeights,
+  });
+
+  const rows = daysWithPersistentReplacements.map(d => ({
     program_id: programId,
     day_number: d.day_number,
     day_name: d.day_name,
