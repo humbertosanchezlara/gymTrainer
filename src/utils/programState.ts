@@ -40,12 +40,14 @@ export interface ProgramWeekLoadResult {
 
 type ProgressSessionRow = {
   id: string;
+  name?: string | null;
   week_num: number | null;
   day_num?: number | null;
   logs?: Array<{ id: string }>;
 };
 
 export type CompletedProgramSlotSet = Set<string>;
+type ProgramDaySlotIndex = Map<string, number>;
 
 export function programSlotKey(weekNum: number, dayNum: number): string {
   return `${weekNum}:${dayNum}`;
@@ -142,7 +144,7 @@ export async function fetchProgramProgressState(
   userId: string,
   program: Pick<Program, 'id' | 'created_at' | 'total_days' | 'total_weeks'>
 ): Promise<ProgramProgressState> {
-  const [initialSessionsRes, lastSessionRes] = await Promise.all([
+  const [initialSessionsRes, lastSessionRes, slotIndex] = await Promise.all([
     fetchProgressSessions(userId, program.created_at, true),
     supabase
       .from('sessions')
@@ -153,6 +155,7 @@ export async function fetchProgramProgressState(
       .order('date', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    fetchProgramDaySlotIndex(program.id),
   ]);
 
   const sessionsRes = initialSessionsRes.error && /day_num/.test(initialSessionsRes.error.message)
@@ -162,30 +165,60 @@ export async function fetchProgramProgressState(
   const completedSessions = sessions.filter((session) =>
     Array.isArray(session.logs) && session.logs.length > 0
   );
-  const hasScheduledSlots = completedSessions.some((session) =>
-    typeof session.week_num === 'number' && typeof session.day_num === 'number'
-  );
-  const completedSlotKeys = hasScheduledSlots
-    ? new Set(
-        completedSessions
-          .filter((session) => typeof session.week_num === 'number' && typeof session.day_num === 'number')
-          .map((session) => programSlotKey(session.week_num as number, session.day_num as number))
-      )
-    : null;
+  const completedSlotKeys = buildCompletedSlotKeys(completedSessions, slotIndex);
+  const hasScheduledSlots = completedSlotKeys.size > 0;
   const sessionCount = hasScheduledSlots
-    ? completedSlotKeys?.size ?? 0
+    ? completedSlotKeys.size
     : completedSessions.length;
-  return deriveProgramProgressState(program, sessionCount, lastSessionRes.data?.date ?? null, completedSlotKeys);
+  return deriveProgramProgressState(program, sessionCount, lastSessionRes.data?.date ?? null, hasScheduledSlots ? completedSlotKeys : null);
 }
 
 function fetchProgressSessions(userId: string, programCreatedAt: string, includeDayNum: boolean) {
   return supabase
     .from('sessions')
-    .select(includeDayNum ? 'id, week_num, day_num, logs:session_logs(id)' : 'id, week_num, logs:session_logs(id)')
+    .select(includeDayNum ? 'id, name, week_num, day_num, logs:session_logs(id)' : 'id, name, week_num, logs:session_logs(id)')
     .eq('user_id', userId)
     .gte('created_at', programCreatedAt)
     .not('block_num', 'is', null)
     .order('created_at', { ascending: true });
+}
+
+async function fetchProgramDaySlotIndex(programId: string): Promise<ProgramDaySlotIndex> {
+  const { data, error } = await supabase
+    .from('program_days')
+    .select('week_num, day_number, day_name')
+    .eq('program_id', programId);
+
+  if (error) throw error;
+
+  const index: ProgramDaySlotIndex = new Map();
+  (data ?? []).forEach((day) => {
+    if (typeof day.week_num === 'number' && typeof day.day_number === 'number' && typeof day.day_name === 'string') {
+      index.set(`${day.week_num}:${day.day_name}`, day.day_number);
+    }
+  });
+  return index;
+}
+
+function buildCompletedSlotKeys(
+  sessions: ProgressSessionRow[],
+  slotIndex: ProgramDaySlotIndex
+): CompletedProgramSlotSet {
+  return new Set(
+    sessions
+      .map((session) => {
+        if (typeof session.week_num !== 'number') return null;
+        if (typeof session.day_num === 'number') return programSlotKey(session.week_num, session.day_num);
+
+        const inferredDayNum = session.name
+          ? slotIndex.get(`${session.week_num}:${session.name}`)
+          : null;
+        return typeof inferredDayNum === 'number'
+          ? programSlotKey(session.week_num, inferredDayNum)
+          : null;
+      })
+      .filter((key): key is string => Boolean(key))
+  );
 }
 
 export function deriveProgramProgressState(
@@ -235,23 +268,20 @@ export function deriveProgramProgressState(
 
 export async function fetchCompletedProgramSlots(
   userId: string,
-  program: Pick<Program, 'created_at'>
+  program: Pick<Program, 'id' | 'created_at'>
 ): Promise<CompletedProgramSlotSet> {
-  const initialSessionsRes = await fetchProgressSessions(userId, program.created_at, true);
+  const [initialSessionsRes, slotIndex] = await Promise.all([
+    fetchProgressSessions(userId, program.created_at, true),
+    fetchProgramDaySlotIndex(program.id),
+  ]);
   const sessionsRes = initialSessionsRes.error && /day_num/.test(initialSessionsRes.error.message)
     ? await fetchProgressSessions(userId, program.created_at, false)
     : initialSessionsRes;
   if (sessionsRes.error) throw sessionsRes.error;
 
   const sessions = (sessionsRes.data ?? []) as unknown as ProgressSessionRow[];
-  return new Set(
-    sessions
-      .filter((session) =>
-        Array.isArray(session.logs)
-        && session.logs.length > 0
-        && typeof session.week_num === 'number'
-        && typeof session.day_num === 'number'
-      )
-      .map((session) => programSlotKey(session.week_num as number, session.day_num as number))
+  return buildCompletedSlotKeys(
+    sessions.filter((session) => Array.isArray(session.logs) && session.logs.length > 0),
+    slotIndex
   );
 }
