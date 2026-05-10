@@ -66,7 +66,7 @@ export function decideInjuryProgression(params: {
   if (lastCheckin?.symptom_level === 'lasting_hours') {
     return {
       decision: 'deload',
-      rationale: 'La última señal post-sesión duró horas. Reduce carga o rango antes de progresar.',
+      rationale: 'La última señal post-sesión duró horas. Reduce carga o reps antes de progresar.',
       weightScale: 0.9,
       rangeStatus: 'partial',
       note: 'Deload por señal de lesión',
@@ -78,26 +78,17 @@ export function decideInjuryProgression(params: {
   if (cleanWeeks < required) {
     return {
       decision: 'hold',
-      rationale: `${cleanWeeks}/${required} semanas limpias. Mantén carga y rango.`,
+      rationale: `${cleanWeeks}/${required} semanas limpias. Mantén carga y reps.`,
       note: 'Mantener por progresión de lesión',
     };
   }
 
-  const order = injury.progression_order?.length ? injury.progression_order : ['range', 'reps', 'weight'];
-  const rangeMaxed = currentLog.range_status === 'target';
+  const order = (injury.progression_order?.length ? injury.progression_order : ['reps', 'weight'])
+    .filter((step) => step !== 'range');
   const repsMaxed = Boolean(currentLog.target_reps_max && currentLog.reps_per_set >= currentLog.target_reps_max);
   const rpeOnTarget = !currentLog.target_rpe || !currentLog.rpe || currentLog.rpe <= currentLog.target_rpe;
 
   for (const step of order) {
-    if (step === 'range' && !rangeMaxed) {
-      return {
-        decision: 'advance_range',
-        rationale: `${cleanWeeks} semanas limpias. Prueba un poco más de rango sin forzar.`,
-        rangeStatus: 'target',
-        note: 'Progresar rango con control',
-      };
-    }
-
     if (step === 'reps' && !repsMaxed) {
       return {
         decision: 'advance_reps',
@@ -110,7 +101,7 @@ export function decideInjuryProgression(params: {
     if (step === 'weight' && repsMaxed && rpeOnTarget) {
       return {
         decision: 'advance_weight',
-        rationale: `${cleanWeeks} semanas limpias con rango y reps objetivo. Sube peso gradualmente.`,
+        rationale: `${cleanWeeks} semanas limpias con reps objetivo. Sube peso gradualmente.`,
         weightDeltaPercent: 5,
         note: 'Progresión por lesión: +5%',
       };

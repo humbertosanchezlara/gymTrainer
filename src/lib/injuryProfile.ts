@@ -99,7 +99,7 @@ export async function savePrimaryInjuryDraft(userId: string, draft: InjuryDraft)
     avoided_exercise_names: splitNames(draft.avoided_exercise_names),
     tolerated_exercise_names: splitNames(draft.tolerated_exercise_names),
     clean_weeks_required: 2,
-    progression_order: ['range', 'reps', 'weight'],
+    progression_order: ['reps', 'weight'],
     active: true,
   };
 

@@ -194,7 +194,7 @@ function Philosophy() {
   const tenets = [
     { k: 'RPE, no porcentajes', v: 'Programamos por esfuerzo percibido. Tu cuerpo cambia cada día — los porcentajes no.' },
     { k: 'Compuestos primero',  v: 'Sentadilla, peso muerto, press, dominadas. Lo que mueve la aguja va antes que los curls.' },
-    { k: 'Progresión, no fe',   v: 'Cuando completas el rango a RPE bajo dos veces, sube el peso. Regla simple, aplicada siempre.' },
+    { k: 'Progresión, no fe',   v: 'Cuando completas las reps objetivo a RPE bajo dos veces, sube el peso. Regla simple, aplicada siempre.' },
     { k: 'Deload programado',   v: 'Cada 4-6 semanas o cuando se estanca. Recuperar es entrenar.' },
   ];
   return (

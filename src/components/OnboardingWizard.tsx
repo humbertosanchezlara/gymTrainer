@@ -298,7 +298,7 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
 
   // ─── BMI badge ────────────────────────────────────────
   const bmi = bodyweight / ((height / 100) ** 2);
-  const bmiLabel = bmi < 18.5 ? 'Bajo peso' : bmi < 25 ? 'Rango saludable' : 'Sobre el rango recomendado';
+  const bmiLabel = bmi < 18.5 ? 'Bajo peso' : bmi < 25 ? 'Zona saludable' : 'Sobre lo recomendado';
 
   const isLastStep = step === TOTAL_STEPS - 1;
 

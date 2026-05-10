@@ -209,7 +209,7 @@ export function injuryGuidanceNote(
 
   const tags = getInjuryExerciseTags(exercise.name, exercise.category);
   if (includesName(injury.tolerated_exercise_names, exercise.name) || tags.kneeSafe) {
-    return 'Rango controlado · no fuerces profundidad · observa la señal de mañana';
+    return 'Movimiento controlado · no fuerces profundidad · observa la señal de mañana';
   }
 
   return null;

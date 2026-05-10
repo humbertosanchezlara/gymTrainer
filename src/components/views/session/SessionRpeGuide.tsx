@@ -26,9 +26,9 @@ export function SessionRpeGuide() {
         }}
       >
         <div>
-          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 4 }}>Guía de RPE y rango</div>
+          <div className="uc" style={{ color: 'var(--muted)', marginBottom: 4 }}>Guía de RPE</div>
           <div className="caption" style={{ color: 'var(--muted)', lineHeight: 1.4 }}>
-            RPE 8 = quedan 2 reps · Rango registra si el movimiento fue normal, parcial u objetivo.
+            RPE 8 = quedan 2 reps antes del fallo.
           </div>
         </div>
         <ChevronDown
@@ -66,13 +66,6 @@ export function SessionRpeGuide() {
               Ejemplo: si hiciste 8 reps con RPE 8, sentiste que podrías haber hecho 2 más antes de fallar. Ese es el objetivo — entrenar cerca del límite sin llegar a él.
             </div>
 
-            <div className="uc" style={{ color: 'var(--muted)', marginTop: 18, marginBottom: 10 }}>Rango — Movimiento</div>
-            <div className="caption" style={{ color: 'var(--muted)', lineHeight: 1.7 }}>
-              El dropdown de rango indica cuánto recorrido lograste con buena técnica. Usa{' '}
-              <strong style={{ color: 'var(--ink)' }}>Normal</strong> cuando no hay nada especial que marcar,{' '}
-              <strong style={{ color: 'var(--ink)' }}>Parcial</strong> si acortaste el movimiento por control, molestia o readaptación, y{' '}
-              <strong style={{ color: 'var(--ink)' }}>Objetivo</strong> cuando hiciste el rango completo esperado sin forzar.
-            </div>
           </div>
         </div>
       </div>
