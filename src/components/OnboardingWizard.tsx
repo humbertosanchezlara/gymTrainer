@@ -15,6 +15,7 @@ import {
   deriveEngineProfile,
   generateNoEquipmentProgram,
 } from '../engine/noEquipmentAdapter';
+import { isBandExerciseAllowedForInjuries, isBandExerciseName } from '../engine/injuryExerciseRules';
 import { ArrowRight, Loader2, Check } from 'lucide-react';
 import { OnboardingIdentityStep } from './onboarding/OnboardingIdentityStep';
 import { OnboardingGoalsStep } from './onboarding/OnboardingGoalsStep';
@@ -104,6 +105,35 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
     }
   };
 
+  const statusForDefaultExercise = (
+    exercise: { name: string; category: (typeof DEFAULT_EXERCISES)[number]['category'] },
+    injuries: Awaited<ReturnType<typeof savePrimaryInjuryDraft>>,
+  ): ExerciseStatus => {
+    return isBandExerciseAllowedForInjuries(exercise, injuries) ? 'YES' : 'NO';
+  };
+
+  const syncExistingBandExerciseStatuses = async (
+    injuries: Awaited<ReturnType<typeof savePrimaryInjuryDraft>>,
+  ) => {
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('exercises')
+      .select('id, name, category, status')
+      .eq('user_id', user.id);
+
+    const updates = (data ?? [])
+      .filter((exercise) => isBandExerciseName(exercise.name))
+      .map((exercise) => {
+        const nextStatus: ExerciseStatus = isBandExerciseAllowedForInjuries(exercise, injuries) ? 'YES' : 'NO';
+        if (exercise.status === nextStatus) return null;
+        return supabase.from('exercises').update({ status: nextStatus }).eq('id', exercise.id);
+      })
+      .filter(Boolean);
+
+    await Promise.all(updates);
+  };
+
   // ─── Submit: regenerate mode ──────────────────────────
   const handleRegenerateFinish = async () => {
     if (!user) return;
@@ -118,9 +148,15 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
 
       const seedExercises = isNoEquipment ? NO_EQUIPMENT_DEFAULT_EXERCISES : DEFAULT_EXERCISES;
       await supabase.from('exercises').upsert(
-        seedExercises.map((e) => ({ user_id: user.id, name: e.name, category: e.category, status: 'YES' as ExerciseStatus })),
+        seedExercises.map((e) => ({
+          user_id: user.id,
+          name: e.name,
+          category: e.category,
+          status: isNoEquipment ? 'YES' as ExerciseStatus : statusForDefaultExercise(e, injuries),
+        })),
         { onConflict: 'user_id,name' }
       );
+      if (!isNoEquipment) await syncExistingBandExerciseStatuses(injuries);
 
       const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).neq('status', 'NO');
       if (!exercises || exercises.length === 0) throw new Error('No exercises');
@@ -204,9 +240,15 @@ export default function OnboardingWizard({ onComplete, regenerateMode = false }:
 
       const seedExercises = isNoEquipment ? NO_EQUIPMENT_DEFAULT_EXERCISES : DEFAULT_EXERCISES;
       await supabase.from('exercises').upsert(
-        seedExercises.map((e) => ({ user_id: user.id, name: e.name, category: e.category, status: 'YES' as ExerciseStatus })),
+        seedExercises.map((e) => ({
+          user_id: user.id,
+          name: e.name,
+          category: e.category,
+          status: isNoEquipment ? 'YES' as ExerciseStatus : statusForDefaultExercise(e, injuries),
+        })),
         { onConflict: 'user_id,name' }
       );
+      if (!isNoEquipment) await syncExistingBandExerciseStatuses(injuries);
 
       const { data: exercises } = await supabase.from('exercises').select('*').eq('user_id', user.id).neq('status', 'NO');
       if (!exercises || exercises.length === 0) throw new Error('Failed to seed exercises');

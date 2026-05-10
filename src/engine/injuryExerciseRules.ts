@@ -1,6 +1,7 @@
 import type { Exercise, MovementCategory, UserInjury } from '../types';
 
 export interface InjuryExerciseTags {
+  bandExercise?: boolean;
   kneeSafe?: boolean;
   highKneeFlexion?: boolean;
   rehabFriendly?: boolean;
@@ -31,6 +32,10 @@ function includesName(list: string[] | null | undefined, exerciseName: string): 
 function isKneeInjury(injury: Pick<UserInjury, 'body_part'>): boolean {
   const bodyPart = normalizeText(injury.body_part);
   return /rodilla|knee|menisc/.test(bodyPart);
+}
+
+export function isBandExerciseName(exerciseName: string): boolean {
+  return nameMatchesAny(exerciseName, [/band/, /banda/, /tke/]);
 }
 
 function nameMatchesAny(name: string, patterns: RegExp[]): boolean {
@@ -69,8 +74,6 @@ const KNEE_SAFE = [
 ];
 
 const REHAB_FRIENDLY = [
-  /band/,
-  /banda/,
   /isometr/,
   /balance/,
   /equilibrio/,
@@ -82,13 +85,59 @@ const REHAB_FRIENDLY = [
 ];
 
 export function getInjuryExerciseTags(exerciseName: string, category?: MovementCategory | string | null): InjuryExerciseTags {
+  const bandExercise = isBandExerciseName(exerciseName);
   const highKneeFlexion = nameMatchesAny(exerciseName, HIGH_KNEE_FLEXION);
   const kneeSafe = nameMatchesAny(exerciseName, KNEE_SAFE);
-  const rehabFriendly = nameMatchesAny(exerciseName, REHAB_FRIENDLY);
+  const rehabFriendly = bandExercise || nameMatchesAny(exerciseName, REHAB_FRIENDLY);
   const axialLoad = nameMatchesAny(exerciseName, [/back squat/, /barra back squat/, /press militar/, /peso muerto convencional/]);
   const sensitive = highKneeFlexion || category === 'QUAD_DOMINANT';
 
-  return { highKneeFlexion, kneeSafe, rehabFriendly, axialLoad, sensitive };
+  return { bandExercise, highKneeFlexion, kneeSafe, rehabFriendly, axialLoad, sensitive };
+}
+
+type InjuryRegion = 'lower' | 'upper' | 'core';
+
+function injuryRegions(injury: Pick<UserInjury, 'body_part'>): InjuryRegion[] {
+  const bodyPart = normalizeText(injury.body_part);
+
+  const regions: InjuryRegion[] = [];
+  if (/rodilla|knee|menisc|pierna|leg|cuadriceps|quad|isquio|hamstring|femoral|glute|cadera|hip|tobillo|ankle|pantorrilla|calf|pie|foot/.test(bodyPart)) {
+    regions.push('lower');
+  }
+  if (/hombro|shoulder|pecho|chest|pectoral|espalda alta|upper back|dorsal|lat|trapec|escap|codo|elbow|muneca|wrist|brazo|arm|bicep|tricep/.test(bodyPart)) {
+    regions.push('upper');
+  }
+  if (/core|abdomen|abdominal|lumbar|lower back|espalda baja|tronco|torso|columna|spine/.test(bodyPart)) {
+    regions.push('core');
+  }
+
+  return regions;
+}
+
+function exerciseRegion(category?: MovementCategory | string | null): InjuryRegion | null {
+  if (category === 'QUAD_DOMINANT' || category === 'POSTERIOR_CHAIN' || category === 'CALVES') return 'lower';
+  if (category === 'PUSH_HORIZONTAL' || category === 'PUSH_VERTICAL' || category === 'PULL_HORIZONTAL' || category === 'PULL_VERTICAL' || category === 'ARMS') return 'upper';
+  if (category === 'CORE') return 'core';
+  return null;
+}
+
+export function isBandExerciseAllowedForInjuries(
+  exercise: Pick<Exercise, 'name' | 'category'>,
+  injuries?: UserInjury[] | null,
+): boolean {
+  if (!isBandExerciseName(exercise.name)) return true;
+
+  const activeInjuries = (injuries ?? []).filter((injury) => injury.active);
+  if (activeInjuries.length === 0) return false;
+
+  const region = exerciseRegion(exercise.category);
+  return activeInjuries.some((injury) => {
+    if (includesName(injury.avoided_exercise_names, exercise.name)) return false;
+    if (includesName(injury.tolerated_exercise_names, exercise.name)) return true;
+
+    if (!region) return false;
+    return injuryRegions(injury).includes(region);
+  });
 }
 
 export function injuryAffectsExercise(
@@ -114,6 +163,8 @@ export function isExerciseAllowedByInjuries(
   exercise: Pick<Exercise, 'name' | 'category'>,
   profile?: InjurySuitabilityProfile | null,
 ): boolean {
+  if (!isBandExerciseAllowedForInjuries(exercise, profile?.injuries)) return false;
+
   const activeInjuries = (profile?.injuries ?? []).filter((injury) => injury.active);
   if (activeInjuries.length === 0) return true;
 
@@ -132,6 +183,8 @@ export function injurySuitabilityScore(
   exercise: Pick<Exercise, 'name' | 'category'>,
   profile?: InjurySuitabilityProfile | null,
 ): number {
+  if (!isBandExerciseAllowedForInjuries(exercise, profile?.injuries)) return -1000;
+
   const activeInjuries = (profile?.injuries ?? []).filter((injury) => injury.active);
   if (activeInjuries.length === 0) return 0;
 

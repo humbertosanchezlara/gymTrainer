@@ -6,6 +6,7 @@ import type { Exercise } from '../../types';
 import { DEFAULT_EXERCISES, type MovementCategory, CATEGORY_LABELS } from '../../types';
 import { estimateWeight } from '../../engine/weightEstimator';
 import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
+import { isBandExerciseAllowedForInjuries } from '../../engine/injuryExerciseRules';
 import { fetchActiveInjuries } from '../../lib/injuryProfile';
 import AddExerciseModal from '../AddExerciseModal';
 import ExerciseDetailModal from '../ExerciseDetailModal';
@@ -136,8 +137,12 @@ export default function LibraryView({ onProgramDeleted }: { onProgramDeleted: ()
   const seedLibrary = async () => {
     if (!user) return;
     setSeeding(true);
+    const injuries = await fetchActiveInjuries(user.id);
     const rows = DEFAULT_EXERCISES.map((e) => ({
-      user_id: user.id, name: e.name, category: e.category, status: 'YES' as const,
+      user_id: user.id,
+      name: e.name,
+      category: e.category,
+      status: isBandExerciseAllowedForInjuries(e, injuries) ? 'YES' as const : 'NO' as const,
     }));
     await supabase.from('exercises').upsert(rows, { onConflict: 'user_id,name' });
     await fetchExercises();
