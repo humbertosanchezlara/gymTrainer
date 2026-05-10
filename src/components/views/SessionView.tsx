@@ -101,6 +101,28 @@ function sessionDraftKey(userId: string) {
   return `session_draft_${userId}`;
 }
 
+function readSavedSessionDraft(userId: string): SessionDraft | null {
+  const savedDraft = localStorage.getItem(sessionDraftKey(userId));
+  if (!savedDraft) return null;
+
+  try {
+    const draft = JSON.parse(savedDraft) as SessionDraft;
+    if (
+      typeof draft.dayNum === 'number'
+      && typeof draft.weekNum === 'number'
+      && typeof draft.sessionName === 'string'
+      && Array.isArray(draft.logs)
+    ) {
+      return draft;
+    }
+  } catch {
+    // Clear invalid drafts below.
+  }
+
+  localStorage.removeItem(sessionDraftKey(userId));
+  return null;
+}
+
 /**
  * Double-progression rule:
  *   ↑  reps >= target_reps_max  AND  rpe <= target_rpe       → +2.5 kg next session
@@ -228,6 +250,19 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
 
     const loadSession = async () => {
       setSaveError(null);
+      const optimisticDraft = travelDraft ? null : readSavedSessionDraft(userId);
+
+      if (optimisticDraft && !draftRestoredRef.current) {
+        setDayNum(optimisticDraft.dayNum);
+        setWeekNum(optimisticDraft.weekNum);
+        setSessionName(optimisticDraft.sessionName);
+        setLogs(optimisticDraft.logs);
+        setLatestPerformance(new Map());
+        setHasProgram(true);
+        setLoadingProgram(false);
+        draftRestoredRef.current = true;
+      }
+
       const { data: exData } = await supabase
         .from('exercises')
         .select('*')
@@ -307,30 +342,20 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
       }
 
       // Check if there's a saved draft for this same day/week
-      const savedDraft = localStorage.getItem(sessionDraftKey(userId));
+      const savedDraft = readSavedSessionDraft(userId);
       if (savedDraft) {
-        try {
-          const draft: SessionDraft = JSON.parse(savedDraft);
-          if (draft.dayNum === currentDayNum && draft.weekNum === currentWeek) {
-            if (!Array.isArray(draft.logs)) {
-              // Draft is corrupt (non-array logs from old code) — discard it
-              localStorage.removeItem(sessionDraftKey(userId));
-            } else {
-              setSessionName(draft.sessionName);
-              setLogs(draft.logs);
-              const performance = await fetchLatestExercisePerformances(
-                userId,
-                program.created_at,
-                draft.logs.map((log) => log.exercise_id)
-              );
-              setLatestPerformance(performance);
-              setLoadingProgram(false);
-              draftRestoredRef.current = true;
-              return;
-            }
-          }
-        } catch {
-          localStorage.removeItem(sessionDraftKey(userId));
+        if (savedDraft.dayNum === currentDayNum && savedDraft.weekNum === currentWeek) {
+          setSessionName(savedDraft.sessionName);
+          setLogs(savedDraft.logs);
+          const performance = await fetchLatestExercisePerformances(
+            userId,
+            program.created_at,
+            savedDraft.logs.map((log) => log.exercise_id)
+          );
+          setLatestPerformance(performance);
+          setLoadingProgram(false);
+          draftRestoredRef.current = true;
+          return;
         }
       }
 
