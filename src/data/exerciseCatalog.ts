@@ -291,7 +291,7 @@ export const EXERCISE_CATALOG: Record<string, ExerciseCatalogEntry> = {
   },
   'Assisted Pull Up': {
     instructions:
-      'Ajusta la asistencia de la máquina para que puedas completar el rango completo con control. Apoya rodillas o pies en la plataforma, cuélgate con agarre prono y tira el pecho hacia la barra. Baja lento hasta extender los brazos sin perder tensión en dorsales.',
+      'Ajusta la asistencia de la máquina para que puedas completar el recorrido con control. Apoya rodillas o pies en la plataforma, cuélgate con agarre prono y tira el pecho hacia la barra. Baja lento hasta extender los brazos sin perder tensión en dorsales.',
     images: [],
   },
   'Weighted Pull Up': {

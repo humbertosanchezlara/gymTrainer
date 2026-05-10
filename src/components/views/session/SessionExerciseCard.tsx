@@ -160,7 +160,7 @@ function getProgressionHint(log: SessionLogEntry, previousPerformance: PreviousE
       return `Mantén ${formatKg(log.weight)} kg hasta que se sienta en RPE ${target_rpe} o menos.`;
     }
 
-    return `Hoy prueba ${formatKg(log.weight)} kg. Si completas el rango con buen RPE, se guarda como tu nuevo peso.`;
+    return `Hoy prueba ${formatKg(log.weight)} kg. Si completas las reps objetivo con buen RPE, se guarda como tu nuevo peso.`;
   }
 
   if (target_reps_min && reps_per_set < target_reps_min) {
@@ -399,22 +399,10 @@ export function SessionExerciseCard({
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>Rango</span>
-          <select
-            value={log.range_status ?? 'unknown'}
-            onChange={(e) => onUpdate(index, 'range_status', e.target.value)}
-            style={{ border: '1px solid var(--rule)', borderRadius: 6, background: 'transparent', color: 'var(--ink)', fontFamily: 'var(--sans)', fontSize: 12, padding: '4px 6px' }}
-          >
-            <option value="unknown">Normal</option>
-            <option value="partial">Parcial</option>
-            <option value="target">Objetivo</option>
-          </select>
-        </label>
-        <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>
-          RPE {log.rpe} — {getRpeHint(log.rpe)}
-        </span>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'center' }}>
+          <span className="mono caption" style={{ color: 'var(--muted)', fontSize: 11 }}>
+            RPE {log.rpe} — {getRpeHint(log.rpe)}
+          </span>
         </div>
       </div>
     </div>

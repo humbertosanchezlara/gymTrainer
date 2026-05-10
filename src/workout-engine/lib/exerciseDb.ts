@@ -28,7 +28,7 @@ export const EXERCISE_DB: Record<string, Exercise> = {
       "Cuerpo rígido de cabeza a talones",
       "Excéntrico 2s, concéntrico explosivo"
     ],
-    commonErrors: ["Caderas caídas", "Codos muy abiertos", "Rango incompleto"],
+    commonErrors: ["Caderas caídas", "Codos muy abiertos", "Recorrido incompleto"],
     description: "Coloca la banda cruzando tu espalda y sujeta cada extremo bajo las palmas. La banda crea resistencia extra justo en la extensión, haciendo cada rep más difícil que un push-up normal. Cuerpo rígido de cabeza a talones. Baja controlado 2s, empuja explosivo.",
     progressions: ["pushup_band_pause", "pushup_diamond", "pushup_archer"],
     regressions: ["pushup_standard"],
@@ -51,7 +51,7 @@ export const EXERCISE_DB: Record<string, Exercise> = {
       "Codos a 45° del torso",
       "Cuerpo rígido — no dejes caer las caderas"
     ],
-    commonErrors: ["Caderas caídas", "Codos muy abiertos", "Rango incompleto"],
+    commonErrors: ["Caderas caídas", "Codos muy abiertos", "Recorrido incompleto"],
     description: "Push-up estándar con peso corporal. Posición de plancha alta, baja hasta que el pecho casi toque el piso, empuja de vuelta. Cuerpo como una tabla durante todo el movimiento.",
     progressions: ["pushup_band", "pushup_diamond", "pushup_wide"],
     regressions: ["pushup_knee"],
@@ -74,7 +74,7 @@ export const EXERCISE_DB: Record<string, Exercise> = {
       "Codos se abren más hacia los lados",
       "Pecho externo recibe más énfasis"
     ],
-    commonErrors: ["Codos demasiado abiertos > 90°", "Rango incompleto"],
+    commonErrors: ["Codos demasiado abiertos > 90°", "Recorrido incompleto"],
     description: "Push-up con manos más anchas que el ancho de hombros. Los codos se abren más lateralmente, enfatizando el pecho externo y los deltoides. Baja hasta que el pecho casi toque el piso.",
     progressions: ["pushup_band"],
     regressions: ["pushup_standard"],
@@ -121,7 +121,7 @@ export const EXERCISE_DB: Record<string, Exercise> = {
       "Torso casi vertical en la bajada",
       "Codos apuntan hacia los lados"
     ],
-    commonErrors: ["Caderas caen durante el movimiento", "Rango incompleto", "Codos abiertos > 90°"],
+    commonErrors: ["Caderas caen durante el movimiento", "Recorrido incompleto", "Codos abiertos > 90°"],
     description: "Desde push-up, camina los pies hacia las manos hasta una V invertida. Dobla los codos llevando la cabeza hacia el piso en 3s — el torso queda casi vertical, cargando los deltoides como un press de hombro. Empuja de vuelta.",
     progressions: ["pike_pushup_elevated", "handstand_pushup_wall"],
     regressions: ["pushup_standard"],
@@ -635,7 +635,7 @@ export const EXERCISE_DB: Record<string, Exercise> = {
     cues: [
       "Pisa la banda, asas en hombros",
       "La banda aumenta la resistencia en la parte superior",
-      "Rango completo — paralelo o más profundo",
+      "Recorrido completo — paralelo o más profundo",
       "Empuja con los talones al subir"
     ],
     commonErrors: ["Rodillas colapsan hacia adentro contra la resistencia de banda", "Torso demasiado inclinado"],
@@ -827,7 +827,7 @@ export const EXERCISE_DB: Record<string, Exercise> = {
     requiresAnchor: false,
     tags: ["calves", "soleus", "gastrocnemius", "eccentric", "high_volume"],
     cues: [
-      "Al borde de un escalón para mayor rango",
+      "Al borde de un escalón para mayor recorrido",
       "Sube en punta de pie lo más alto posible",
       "Baja en 4 segundos hasta que el talón quede debajo del escalón",
       "El excéntrico lento es lo que produce el crecimiento"
@@ -928,10 +928,10 @@ export const EXERCISE_DB: Record<string, Exercise> = {
       "Boca arriba, brazos al techo, rodillas a 90° en el aire",
       "Simultáneamente: brazo derecho atrás + pierna izquierda al frente",
       "Espalda baja NUNCA se despega del piso",
-      "Si se despega: reduce el rango de movimiento"
+      "Si se despega: reduce el recorrido"
     ],
     commonErrors: ["Espalda baja se despega del piso", "Movimientos no son simultáneos", "Pérdida de la posición de rodilla en 90°"],
-    description: "Boca arriba, brazos al techo, rodillas en 90°. Baja brazo y pierna opuestos simultáneamente sin que la espalda baja se despegue del piso. La espalda pegada al piso es la regla absoluta — si se despega, reduce el rango.",
+    description: "Boca arriba, brazos al techo, rodillas en 90°. Baja brazo y pierna opuestos simultáneamente sin que la espalda baja se despegue del piso. La espalda pegada al piso es la regla absoluta — si se despega, reduce el recorrido.",
     progressions: ["dead_bug_band", "dead_bug_weighted"],
     regressions: ["hollow_body_hold"],
   },

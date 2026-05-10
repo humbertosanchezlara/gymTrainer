@@ -13,7 +13,7 @@ export function SessionProgressionGuide() {
     >
       <div className="uc" style={{ color: 'var(--muted)' }}>Progresión</div>
       <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink)' }}>
-        Primero sube reps dentro del rango. Cuando llegues al tope con buen RPE, la app sube el peso para la próxima sesión.
+        Primero sube reps hasta el objetivo. Cuando llegues al tope con buen RPE, la app sube el peso para la próxima sesión.
       </div>
     </div>
   );
