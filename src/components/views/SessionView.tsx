@@ -13,10 +13,19 @@ import { fetchActiveInjuries } from '../../lib/injuryProfile';
 import { createPendingInjuryCheckins, fetchRecentInjuryCheckins } from '../../lib/injuryCheckins';
 import type { TravelDayContext } from '../../lib/openaiTravelGenerator';
 import type { ProgramSessionSelection, Tab } from '../MainShell';
-import type { RangeStatus, UserInjury } from '../../types';
+import type { ProgramDayExercise, RangeStatus, UserInjury } from '../../types';
 import { fetchProgramDayForWeekOrFallback, fetchProgramProgressState, getBlockInfo, normalizeProgramDayExercise } from '../../utils/programState';
+import { replaceExerciseInProgram } from '../../utils/programExerciseMutations';
+import {
+  inferReplacementCategories,
+  rankReplacementCandidates,
+  type ReplaceableProgramExercise,
+  type ReplacementCandidate,
+  type ReplacementTrainingContext,
+} from '../../utils/exerciseReplacement';
 import { injuryAffectsExercise } from '../../engine/injuryExerciseRules';
 import { decideInjuryProgression } from '../../engine/injuryProgression';
+import { isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
 import { SessionTopBar } from './session/SessionTopBar';
 import { SessionHeaderCard } from './session/SessionHeaderCard';
 import { SessionTravelBanner } from './session/SessionTravelBanner';
@@ -26,6 +35,8 @@ import { SessionRpeGuide } from './session/SessionRpeGuide';
 import { SessionExerciseCard } from './session/SessionExerciseCard';
 import { SessionSavePanel } from './session/SessionSavePanel';
 import { SessionProgressionGuide } from './session/SessionProgressionGuide';
+import { DashboardReplaceExerciseCard } from './dashboard/DashboardReplaceExerciseCard';
+import { DashboardReplaceExerciseModal } from './dashboard/DashboardReplaceExerciseModal';
 
 // ─── Types ────────────────────────────────────────────────
 export interface SessionLogEntry {
@@ -195,6 +206,13 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
   const [currentSessCount, setCurrentSessCount] = useState<number>(0);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [latestPerformance, setLatestPerformance] = useState<Map<string, PreviousExercisePerformance>>(new Map());
+  const [programDayExercises, setProgramDayExercises] = useState<ProgramDayExercise[]>([]);
+  const [trainingContext, setTrainingContext] = useState<ReplacementTrainingContext | null>(null);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<ReplaceableProgramExercise | null>(null);
+  const [replacementCandidates, setReplacementCandidates] = useState<ReplacementCandidate[]>([]);
+  const [replaceLoading, setReplaceLoading] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
   const draftRestoredRef = useRef(false);
 
   // Persist draft to localStorage whenever logs or sessionName change
@@ -219,6 +237,17 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
       if (exData) setExercises(exData);
       const activeInjuries = await fetchActiveInjuries(userId);
       setInjuries(activeInjuries);
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('gender, training_experience, limitations')
+        .eq('id', userId)
+        .maybeSingle();
+      setTrainingContext({
+        gender: profileData?.gender ?? 'male',
+        training_experience: profileData?.training_experience ?? 'intermediate',
+        limitations: profileData?.limitations ?? null,
+        injuries: activeInjuries,
+      });
 
       const { data: program } = await supabase
         .from('programs')
@@ -338,14 +367,19 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         const dayExercises: Array<{
           exercise_id: string;
           exercise_name: string;
+          category: string;
+          role: 'primary' | 'secondary' | 'accessory';
           sets: number;
           reps_min: number;
           reps_max: number;
           weight: number;
           rpe: number;
+          is_calibration: boolean;
+          notes: string;
         }> = (Array.isArray(dayResult.day.exercises) ? dayResult.day.exercises : []).map((ex: unknown) =>
           normalizeProgramDayExercise(ex as Record<string, unknown>)
         );
+        setProgramDayExercises(dayExercises);
         const preFilled: SessionLogEntry[] = dayExercises.map((ex) => {
           let currentWeight = weightMap.get(ex.exercise_id) ?? ex.weight ?? 0;
           let rpe = ex.rpe || 7;
@@ -380,6 +414,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
       } else if (generationFailed) {
         setSessionName('');
         setLogs([]);
+        setProgramDayExercises([]);
         setLatestPerformance(new Map());
       }
 
@@ -409,6 +444,143 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
   const removeLog = (idx: number) => {
     setLogs(logs.filter((_, i) => i !== idx));
     setConfirmDeleteIdx(null);
+  };
+
+  const openReplaceModal = () => {
+    setSelectedExercise(null);
+    setReplacementCandidates([]);
+    setReplaceError(null);
+    setShowReplaceModal(true);
+  };
+
+  const buildReplaceableExercises = (): ReplaceableProgramExercise[] => {
+    const byId = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+    const byProgramId = new Map(programDayExercises.map((exercise) => [exercise.exercise_id, exercise]));
+
+    return logs
+      .filter((log) => Boolean(log.exercise_id))
+      .map((log) => {
+        const catalogExercise = byId.get(log.exercise_id);
+        const programExercise = byProgramId.get(log.exercise_id);
+
+        return {
+          exercise_id: log.exercise_id,
+          exercise_name: log.exercise_name,
+          category: programExercise?.category ?? catalogExercise?.category,
+          role: programExercise?.role,
+          sets: log.sets,
+          reps_min: log.target_reps_min,
+          reps_max: log.target_reps_max,
+          rpe: log.target_rpe,
+          weight: log.weight,
+          notes: log.notes,
+        };
+      });
+  };
+
+  const selectExerciseForReplacement = async (exercise: ReplaceableProgramExercise) => {
+    if (!user) return;
+    const replaceableExercises = buildReplaceableExercises();
+    setSelectedExercise(exercise);
+    setReplaceError(null);
+    setReplaceLoading(true);
+    try {
+      const currentIds = new Set(logs.map((item) => item.exercise_id));
+      const replacementCategories = inferReplacementCategories(exercise, replaceableExercises, sessionName);
+      if (replacementCategories.length === 0) {
+        setReplacementCandidates([]);
+        return;
+      }
+      const { data } = await supabase
+        .from('exercises')
+        .select('id, name, category')
+        .eq('user_id', user.id)
+        .neq('status', 'NO')
+        .in('category', replacementCategories)
+        .neq('id', exercise.exercise_id);
+      setReplacementCandidates(
+        rankReplacementCandidates(
+          (data ?? []).filter((candidate) => !currentIds.has(candidate.id) && isExerciseSuitableForProfile(candidate, trainingContext)),
+          exercise,
+          replaceableExercises,
+          sessionName,
+          replacementCategories,
+          trainingContext,
+        ),
+      );
+    } catch {
+      setReplaceError('No se pudieron cargar reemplazos para este ejercicio.');
+    } finally {
+      setReplaceLoading(false);
+    }
+  };
+
+  const applyPersistentReplacement = async (candidateId: string) => {
+    if (!user || !programId || !selectedExercise) return;
+    const replaceableExercises = buildReplaceableExercises();
+    setReplaceLoading(true);
+    setReplaceError(null);
+    try {
+      const compatibleCategories = inferReplacementCategories(selectedExercise, replaceableExercises, sessionName);
+      const result = await replaceExerciseInProgram({
+        userId: user.id,
+        programId,
+        currentWeek: weekNum,
+        fromExerciseId: selectedExercise.exercise_id ?? '',
+        toExerciseId: candidateId,
+        compatibleCategories,
+      });
+      localStorage.removeItem(sessionDraftKey(user.id));
+
+      const refreshed = await fetchProgramDayForWeekOrFallback(programId, weekNum, dayNum);
+      if (refreshed.day) {
+        const refreshedExercises = refreshed.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise));
+        setProgramDayExercises(refreshedExercises);
+        setLogs((currentLogs) => {
+          const previousProgramIds = new Set(programDayExercises.map((exercise) => exercise.exercise_id));
+          const refreshedIds = new Set(refreshedExercises.map((exercise) => exercise.exercise_id));
+          const syncedLogs = refreshedExercises.map((exercise) => {
+            const existing = currentLogs.find((log) => log.exercise_id === exercise.exercise_id);
+            const replaced = currentLogs.find((log) => log.exercise_id === selectedExercise.exercise_id);
+            const preserveTargets = existing ?? replaced;
+
+            return {
+              exercise_id: exercise.exercise_id,
+              exercise_name: exercise.exercise_name,
+              sets: preserveTargets?.sets ?? exercise.sets,
+              reps_per_set: preserveTargets?.reps_per_set ?? exercise.reps_min,
+              weight: existing?.weight ?? exercise.weight,
+              rpe: preserveTargets?.rpe ?? exercise.rpe,
+              notes: existing?.notes ?? exercise.notes ?? '',
+              range_status: preserveTargets?.range_status ?? 'unknown',
+              target_reps_min: exercise.reps_min,
+              target_reps_max: exercise.reps_max,
+              target_rpe: exercise.rpe,
+            };
+          });
+          const extraLogs = currentLogs.filter((log) => (
+            log.exercise_id
+            && !previousProgramIds.has(log.exercise_id)
+            && !refreshedIds.has(log.exercise_id)
+          ));
+
+          return [...syncedLogs, ...extraLogs];
+        });
+      }
+
+      setShowReplaceModal(false);
+      setSelectedExercise(null);
+      setReplacementCandidates([]);
+      toast.success(
+        result.usedExistingWeight
+          ? `${result.replacement.name} reemplazó a ${result.removed.name}.`
+          : `${result.replacement.name} reemplazó a ${result.removed.name} con peso de calibración.`
+      );
+    } catch {
+      setReplaceError('No se pudo aplicar el reemplazo. Intenta de nuevo.');
+    } finally {
+      setReplaceLoading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -600,6 +772,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
   }
 
   const blockDesc = BLOCKS.find(b => b.num === blockNum)?.desc ?? '';
+  const replaceableExercises = buildReplaceableExercises();
 
   // ─── Render ────────────────────────────────────────────────
   return (
@@ -639,6 +812,10 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
 
         {/* Return-to-gym banner */}
         {travelDraft && <SessionTravelBanner onReturnToGym={() => { onClearTravel(); onNavigate('dashboard'); }} />}
+
+        {hasProgram && !travelDraft && !saved && replaceableExercises.length > 0 && (
+          <DashboardReplaceExerciseCard onClick={openReplaceModal} />
+        )}
 
         {/* Periodization bar */}
         {hasProgram && blockNum > 0 && <SessionBlockProgress blocks={BLOCKS} blockNum={blockNum} blockDesc={blockDesc} />}
@@ -702,6 +879,29 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
       {detailExercise && (
         <ExerciseDetailModal exerciseName={detailExercise} onClose={() => setDetailExercise(null)} />
       )}
+
+      <DashboardReplaceExerciseModal
+        isOpen={showReplaceModal}
+        onClose={() => {
+          if (replaceLoading) return;
+          setShowReplaceModal(false);
+          setSelectedExercise(null);
+          setReplacementCandidates([]);
+          setReplaceError(null);
+        }}
+        todayExercises={replaceableExercises}
+        selectedExercise={selectedExercise}
+        replacementCandidates={replacementCandidates}
+        replaceLoading={replaceLoading}
+        replaceError={replaceError}
+        onSelectExercise={selectExerciseForReplacement}
+        onBack={() => {
+          setSelectedExercise(null);
+          setReplacementCandidates([]);
+          setReplaceError(null);
+        }}
+        onApplyReplacement={applyPersistentReplacement}
+      />
     </div>
   );
 }

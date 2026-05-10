@@ -31,16 +31,14 @@ import {
   normalizeProgramDayExercise,
   programSlotKey,
 } from '../../utils/programState';
-import { replaceExerciseInProgram } from '../../utils/programExerciseMutations';
+import { inferReplacementCategories, rankReplacementCandidates, normalizeReplacementText } from '../../utils/exerciseReplacement';
 import { DashboardProgramCompleteBanner } from './dashboard/DashboardProgramCompleteBanner';
-import { DashboardReplaceExerciseCard } from './dashboard/DashboardReplaceExerciseCard';
 import { DashboardTravelModeCard } from './dashboard/DashboardTravelModeCard';
 import { DashboardProgramLinkCard } from './dashboard/DashboardProgramLinkCard';
 import { DashboardTravelSetupModal } from './dashboard/DashboardTravelSetupModal';
-import { DashboardReplaceExerciseModal } from './dashboard/DashboardReplaceExerciseModal';
 import { DashboardSwitchDayCard } from './dashboard/DashboardSwitchDayCard';
 import { DashboardSwitchDayModal } from './dashboard/DashboardSwitchDayModal';
-import { exerciseSuitabilityScore, isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
+import { isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -71,14 +69,6 @@ interface ProgramDayExercise {
   notes?: string;
 }
 
-interface ReplacementCandidate {
-  id: string;
-  name: string;
-  category: string;
-  rank: 1 | 2 | 3;
-  reason: string;
-}
-
 interface TrainingContext {
   gender: string;
   training_experience: string;
@@ -107,120 +97,8 @@ function estimateDuration(exerciseCount: number): string {
   return `${min}–${max} min`;
 }
 
-const PULL_CATEGORIES = ['PULL_VERTICAL', 'PULL_HORIZONTAL'];
-const PUSH_CATEGORIES = ['PUSH_HORIZONTAL', 'PUSH_VERTICAL'];
-const LEG_CATEGORIES = ['QUAD_DOMINANT', 'POSTERIOR_CHAIN', 'CALVES'];
-
 function normalizeText(value?: string | null): string {
-  return (value ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
-
-function dayIncludesAny(todayExercises: ProgramDayExercise[], categories: string[]): boolean {
-  const categorySet = new Set(categories);
-  return todayExercises.some((exercise) => exercise.category && categorySet.has(exercise.category));
-}
-
-function inferReplacementCategories(
-  selected: ProgramDayExercise,
-  todayExercises: ProgramDayExercise[],
-  dayName: string | null,
-): string[] {
-  const selectedCategory = selected.category;
-  if (!selectedCategory) return [];
-
-  const normalizedDayName = normalizeText(dayName);
-  const looksLikePullDay = /pull|jalon|espalda|back/.test(normalizedDayName) || dayIncludesAny(todayExercises, PULL_CATEGORIES);
-  const looksLikePushDay = /push|empuje|pecho|hombro/.test(normalizedDayName) || dayIncludesAny(todayExercises, PUSH_CATEGORIES);
-  const looksLikeLegDay = /pierna|lower|leg|sentadilla/.test(normalizedDayName) || dayIncludesAny(todayExercises, LEG_CATEGORIES);
-
-  if (looksLikePullDay && LEG_CATEGORIES.includes(selectedCategory)) {
-    return PULL_CATEGORIES;
-  }
-
-  if (!looksLikePullDay && looksLikePushDay && LEG_CATEGORIES.includes(selectedCategory)) {
-    return PUSH_CATEGORIES;
-  }
-
-  if (
-    !looksLikePullDay
-    && !looksLikePushDay
-    && looksLikeLegDay
-    && [...PULL_CATEGORIES, ...PUSH_CATEGORIES].includes(selectedCategory)
-  ) {
-    return LEG_CATEGORIES;
-  }
-
-  return [selectedCategory];
-}
-
-function candidateNameScore(candidateName: string, selected: ProgramDayExercise, dayName: string | null): number {
-  const candidate = normalizeText(candidateName);
-  const selectedName = normalizeText(selected.exercise_name ?? selected.name);
-  const normalizedDayName = normalizeText(dayName);
-  let score = 0;
-
-  if (/jalon|dominada|pull/.test(candidate) && /jalon|pull|espalda|back/.test(normalizedDayName)) score += 16;
-  if (/remo/.test(candidate) && /espalda|back|pull/.test(normalizedDayName)) score += 12;
-  if (/press|banca|pecho/.test(candidate) && /push|empuje|pecho/.test(normalizedDayName)) score += 14;
-  if (/sentadilla|prensa|squat/.test(candidate) && /pierna|leg|lower/.test(normalizedDayName)) score += 14;
-  if (/peso muerto|rumano|curl femoral|hip thrust/.test(candidate) && /posterior|pierna|leg|lower/.test(normalizedDayName)) score += 12;
-
-  if (/barra/.test(candidate) && /barra/.test(selectedName)) score += 5;
-  if (/mancuerna/.test(candidate) && /mancuerna/.test(selectedName)) score += 5;
-  if (/maquina/.test(candidate) && /maquina/.test(selectedName)) score += 4;
-  if (/cable|polea/.test(candidate) && /cable|polea/.test(selectedName)) score += 4;
-
-  return score;
-}
-
-function rankReplacementCandidates(
-  candidates: Array<{ id: string; name: string; category: string }>,
-  selected: ProgramDayExercise,
-  todayExercises: ProgramDayExercise[],
-  dayName: string | null,
-  replacementCategories: string[],
-  trainingContext: TrainingContext | null,
-): ReplacementCandidate[] {
-  const categoryCounts = todayExercises.reduce<Record<string, number>>((counts, exercise) => {
-    if (!exercise.category) return counts;
-    counts[exercise.category] = (counts[exercise.category] ?? 0) + 1;
-    return counts;
-  }, {});
-
-  return candidates
-    .map((candidate) => {
-      const categoryIndex = replacementCategories.indexOf(candidate.category);
-      const categoryScore = categoryIndex === -1 ? 0 : (replacementCategories.length - categoryIndex) * 30;
-      const dayScore = (categoryCounts[candidate.category] ?? 0) * 18;
-      const selectedScore = selected.category === candidate.category ? 16 : 0;
-      const score = categoryScore
-        + dayScore
-        + selectedScore
-        + candidateNameScore(candidate.name, selected, dayName)
-        + exerciseSuitabilityScore(candidate, trainingContext);
-      const reason = selected.category === candidate.category
-        ? 'Misma categoría del ejercicio original'
-        : categoryCounts[candidate.category]
-          ? 'Encaja mejor con el enfoque de esta sesión'
-          : 'Compatible con el patrón del día';
-
-      return { ...candidate, score, reason };
-    })
-    .sort((a, b) => {
-      const scoreDiff = b.score - a.score;
-      return scoreDiff === 0 ? a.name.localeCompare(b.name, 'es') : scoreDiff;
-    })
-    .slice(0, 3)
-    .map((candidate, index) => ({
-      id: candidate.id,
-      name: candidate.name,
-      category: candidate.category,
-      rank: (index + 1) as 1 | 2 | 3,
-      reason: candidate.reason,
-    }));
+  return normalizeReplacementText(value);
 }
 
 function sessionDraftKey(userId: string) {
@@ -252,12 +130,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
   const [adjustedSummary, setAdjustedSummary] = useState<string | null>(null);
   const [originalExercises, setOriginalExercises] = useState<ProgramDayExercise[] | null>(null);
   const [adjustError, setAdjustError] = useState<string | null>(null);
-  const [showReplaceModal, setShowReplaceModal] = useState(false);
-  const [selectedExercise, setSelectedExercise] = useState<ProgramDayExercise | null>(null);
-  const [replacementCandidates, setReplacementCandidates] = useState<ReplacementCandidate[]>([]);
-  const [replaceLoading, setReplaceLoading] = useState(false);
-  const [replaceError, setReplaceError] = useState<string | null>(null);
-
   const [showTravelSetup, setShowTravelSetup] = useState(false);
   const [travelDays, setTravelDays] = useState(3);
   const [travelHasBands, setTravelHasBands] = useState(true);
@@ -512,89 +384,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
     }
   };
 
-  const openReplaceModal = () => {
-    setSelectedExercise(null);
-    setReplacementCandidates([]);
-    setReplaceError(null);
-    setShowReplaceModal(true);
-  };
-
-  const selectExerciseForReplacement = async (exercise: ProgramDayExercise) => {
-    if (!user) return;
-    setSelectedExercise(exercise);
-    setReplaceError(null);
-    setReplaceLoading(true);
-    try {
-      const currentIds = new Set(todayExercises.map((item) => item.exercise_id));
-      const replacementCategories = inferReplacementCategories(exercise, todayExercises, nextDayName);
-      if (replacementCategories.length === 0) {
-        setReplacementCandidates([]);
-        return;
-      }
-      const { data } = await supabase
-        .from('exercises')
-        .select('id, name, category')
-        .eq('user_id', user.id)
-        .neq('status', 'NO')
-        .in('category', replacementCategories)
-        .neq('id', exercise.exercise_id);
-      setReplacementCandidates(
-        rankReplacementCandidates(
-          (data ?? []).filter((candidate) => !currentIds.has(candidate.id) && isExerciseSuitableForProfile(candidate, trainingContext)),
-          exercise,
-          todayExercises,
-          nextDayName,
-          replacementCategories,
-          trainingContext,
-        ),
-      );
-    } catch {
-      setReplaceError('No se pudieron cargar reemplazos para este ejercicio.');
-    } finally {
-      setReplaceLoading(false);
-    }
-  };
-
-  const applyPersistentReplacement = async (candidateId: string) => {
-    if (!user || !programId || !selectedExercise) return;
-    setReplaceLoading(true);
-    setReplaceError(null);
-    try {
-      const compatibleCategories = inferReplacementCategories(selectedExercise, todayExercises, nextDayName);
-      const result = await replaceExerciseInProgram({
-        userId: user.id,
-        programId,
-        currentWeek,
-        fromExerciseId: selectedExercise.exercise_id ?? '',
-        toExerciseId: candidateId,
-        compatibleCategories,
-      });
-      localStorage.removeItem(sessionDraftKey(user.id));
-      const refreshed = nextDayNum
-        ? await fetchProgramDayForWeekOrFallback(programId, currentWeek, nextDayNum)
-        : null;
-      if (refreshed?.day) {
-        setNextDayName(refreshed.day.day_name);
-        setNextDayId(refreshed.day.id);
-        setTodayExercises(refreshed.day.exercises.map((exercise) => normalizeProgramDayExercise(exercise)));
-      }
-      setOriginalExercises(null);
-      setAdjustedSummary(null);
-      setShowReplaceModal(false);
-      setSelectedExercise(null);
-      setReplacementCandidates([]);
-      toast.success(
-        result.usedExistingWeight
-          ? `${result.replacement.name} reemplazó a ${result.removed.name}.`
-          : `${result.replacement.name} reemplazó a ${result.removed.name} con peso de calibración.`
-      );
-    } catch {
-      setReplaceError('No se pudo aplicar el reemplazo. Intenta de nuevo.');
-    } finally {
-      setReplaceLoading(false);
-    }
-  };
-
   const [travelGenerating, setTravelGenerating] = useState(false);
 
   const handleTravelModeClick = async (skipCache = false) => {
@@ -730,8 +519,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         />
       )}
 
-      {todayExercises.length > 0 && !programComplete && <DashboardReplaceExerciseCard onClick={openReplaceModal} />}
-
       {/* AI adjust */}
       <AdjustWithAI
         value={adjustInput}
@@ -786,29 +573,6 @@ export default function DashboardView({ onNavigate, onStartSession, onStartTrave
         travelGenerating={travelGenerating}
         onRegenerate={() => handleTravelModeClick(true)}
         onNextSession={() => handleTravelModeClick(false)}
-      />
-
-      <DashboardReplaceExerciseModal
-        isOpen={showReplaceModal}
-        onClose={() => {
-          if (replaceLoading) return;
-          setShowReplaceModal(false);
-          setSelectedExercise(null);
-          setReplacementCandidates([]);
-          setReplaceError(null);
-        }}
-        todayExercises={todayExercises}
-        selectedExercise={selectedExercise}
-        replacementCandidates={replacementCandidates}
-        replaceLoading={replaceLoading}
-        replaceError={replaceError}
-        onSelectExercise={selectExerciseForReplacement}
-        onBack={() => {
-          setSelectedExercise(null);
-          setReplacementCandidates([]);
-          setReplaceError(null);
-        }}
-        onApplyReplacement={applyPersistentReplacement}
       />
 
       <DashboardSwitchDayModal
