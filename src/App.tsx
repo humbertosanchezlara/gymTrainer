@@ -8,6 +8,15 @@ import OnboardingWizard from './components/OnboardingWizard';
 import MainShell from './components/MainShell';
 import ResetPasswordScreen from './components/ResetPasswordScreen';
 
+function profileCacheKey(userId: string) {
+  return `profile_exists_${userId}`;
+}
+
+function readCachedProfile(userId?: string): boolean | null {
+  if (!userId || typeof window === 'undefined') return null;
+  return localStorage.getItem(profileCacheKey(userId)) === 'true' ? true : null;
+}
+
 function AppRouter() {
   const { user, loading } = useAuth();
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
@@ -32,19 +41,33 @@ function AppRouter() {
       return;
     }
     let cancelled = false;
+    const cachedProfile = readCachedProfile(user.id);
     setShowAuth(false);
-    setCheckingProfile(true);
-    setHasProfile(null);
+    setCheckingProfile(cachedProfile !== true);
+    setHasProfile(cachedProfile);
     supabase
       .from('profiles')
       .select('id')
       .eq('id', user.id)
       .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        setHasProfile(!!data);
-        setCheckingProfile(false);
-      });
+      .then(
+        ({ data }) => {
+          if (cancelled) return;
+          const profileExists = !!data;
+          setHasProfile(profileExists);
+          if (profileExists) {
+            localStorage.setItem(profileCacheKey(user.id), 'true');
+          } else {
+            localStorage.removeItem(profileCacheKey(user.id));
+          }
+          setCheckingProfile(false);
+        },
+        () => {
+          if (cancelled) return;
+          setHasProfile(true);
+          setCheckingProfile(false);
+        }
+      );
     return () => {
       cancelled = true;
     };
@@ -81,7 +104,14 @@ function AppRouter() {
   }
 
   if (hasProfile === false) {
-    return <OnboardingWizard onComplete={() => setHasProfile(true)} />;
+    return (
+      <OnboardingWizard
+        onComplete={() => {
+          localStorage.setItem(profileCacheKey(user.id), 'true');
+          setHasProfile(true);
+        }}
+      />
+    );
   }
 
   if (showRegenerate) {
