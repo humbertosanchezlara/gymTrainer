@@ -61,6 +61,36 @@ interface PreviousExercisePerformance {
   sessionName: string;
 }
 
+function normalizeExerciseName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function filterProgressionNoteForExercises(note: string | null | undefined, exerciseNames: string[]): string | null {
+  if (!note) return null;
+
+  const normalizedNames = exerciseNames
+    .filter(Boolean)
+    .map((name) => normalizeExerciseName(name));
+  if (normalizedNames.length === 0) return null;
+
+  const applicableLines = note
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .filter((line) => {
+      const normalizedLine = normalizeExerciseName(line.slice(2));
+      return normalizedNames.some((name) => normalizedLine.startsWith(`${name}:`));
+    });
+
+  if (applicableLines.length === 0) return null;
+
+  return `Ajustes sugeridos para la próxima vez que aparezcan en tu rutina:\n${applicableLines.join('\n')}`;
+}
+
 interface SessionDraft {
   dayNum: number;
   weekNum: number;
@@ -145,7 +175,13 @@ function computeProgression(log: SessionLogEntry): ProgressionResult {
 async function fetchLatestExercisePerformances(
   userId: string,
   programCreatedAt: string,
-  exerciseIds: string[]
+  exerciseIds: string[],
+  context: {
+    programId: string;
+    sessionName: string;
+    dayNum: number;
+    weekNum: number;
+  }
 ): Promise<Map<string, PreviousExercisePerformance>> {
   const uniqueIds = [...new Set(exerciseIds.filter(Boolean))];
   const latestByExercise = new Map<string, PreviousExercisePerformance>();
@@ -153,7 +189,7 @@ async function fetchLatestExercisePerformances(
 
   const { data } = await supabase
     .from('sessions')
-    .select('name, created_at, logs:session_logs(exercise_id, reps_per_set, weight, rpe)')
+    .select('name, program_id, week_num, day_num, created_at, logs:session_logs(exercise_id, reps_per_set, weight, rpe)')
     .eq('user_id', userId)
     .gte('created_at', programCreatedAt)
     .not('block_num', 'is', null)
@@ -161,6 +197,11 @@ async function fetchLatestExercisePerformances(
     .limit(60);
 
   for (const session of data ?? []) {
+    const sameProgram = session.program_id === context.programId || !session.program_id;
+    const sameSlot = session.day_num === context.dayNum || session.name === context.sessionName;
+    const previousWeek = !session.week_num || session.week_num < context.weekNum;
+    if (!sameProgram || !sameSlot || !previousWeek) continue;
+
     const logs = Array.isArray(session.logs) ? session.logs : [];
     for (const log of logs) {
       if (!uniqueIds.includes(log.exercise_id) || latestByExercise.has(log.exercise_id)) continue;
@@ -174,6 +215,48 @@ async function fetchLatestExercisePerformances(
   }
 
   return latestByExercise;
+}
+
+async function fetchApplicableProgressionNote(
+  userId: string,
+  programCreatedAt: string,
+  context: {
+    programId: string;
+    weekNum: number;
+    exerciseNames: string[];
+  }
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('sessions')
+    .select('notes, program_id, week_num, created_at')
+    .eq('user_id', userId)
+    .gte('created_at', programCreatedAt)
+    .not('block_num', 'is', null)
+    .not('notes', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(40);
+
+  const applicableLines: string[] = [];
+  const seenLines = new Set<string>();
+
+  for (const session of data ?? []) {
+    const sameProgram = session.program_id === context.programId || !session.program_id;
+    const previousWeek = !session.week_num || session.week_num < context.weekNum;
+    if (!sameProgram || !previousWeek) continue;
+
+    const filteredNote = filterProgressionNoteForExercises(session.notes, context.exerciseNames);
+    if (!filteredNote) continue;
+
+    for (const line of filteredNote.split('\n').filter((item) => item.trim().startsWith('- '))) {
+      if (seenLines.has(line)) continue;
+      seenLines.add(line);
+      applicableLines.push(line);
+    }
+  }
+
+  if (applicableLines.length === 0) return null;
+
+  return `Ajustes sugeridos para la próxima vez que aparezcan en tu rutina:\n${applicableLines.join('\n')}`;
 }
 
 // ─── Component ────────────────────────────────────────────
@@ -242,6 +325,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
 
     const loadSession = async () => {
       setSaveError(null);
+      setLastProgressionNote(null);
       const optimisticDraft = travelDraft ? null : readSavedSessionDraft(userId);
 
       if (optimisticDraft && !draftRestoredRef.current) {
@@ -291,17 +375,6 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
 
       setHasProgram(true);
       const progress = await fetchProgramProgressState(userId, program);
-      const { data: previousSession } = await supabase
-        .from('sessions')
-        .select('notes')
-        .eq('user_id', userId)
-        .eq('program_id', program.id)
-        .not('block_num', 'is', null)
-        .not('notes', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setLastProgressionNote(previousSession?.notes ?? null);
 
       let daysSinceLast = 0;
       if (progress.lastSessionDate) {
@@ -338,6 +411,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         setBlockName('Fuera del Gym');
         setLogs(travelDraft);
         setLatestPerformance(new Map());
+        setLastProgressionNote(null);
         setLoadingProgram(false);
         setHasProgram(true);
         draftRestoredRef.current = true;
@@ -353,9 +427,25 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
           const performance = await fetchLatestExercisePerformances(
             userId,
             program.created_at,
-            savedDraft.logs.map((log) => log.exercise_id)
+            savedDraft.logs.map((log) => log.exercise_id),
+            {
+              programId: program.id,
+              sessionName: savedDraft.sessionName,
+              dayNum: savedDraft.dayNum,
+              weekNum: savedDraft.weekNum,
+            }
+          );
+          const applicableNote = await fetchApplicableProgressionNote(
+            userId,
+            program.created_at,
+            {
+              programId: program.id,
+              weekNum: savedDraft.weekNum,
+              exerciseNames: savedDraft.logs.map((log) => log.exercise_name),
+            }
           );
           setLatestPerformance(performance);
+          setLastProgressionNote(applicableNote);
           setLoadingProgram(false);
           draftRestoredRef.current = true;
           return;
@@ -435,9 +525,25 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         const performance = await fetchLatestExercisePerformances(
           userId,
           program.created_at,
-          preFilled.map((log) => log.exercise_id)
+          preFilled.map((log) => log.exercise_id),
+          {
+            programId: program.id,
+            sessionName: dayResult.day.day_name,
+            dayNum: currentDayNum,
+            weekNum: currentWeek,
+          }
+        );
+        const applicableNote = await fetchApplicableProgressionNote(
+          userId,
+          program.created_at,
+          {
+            programId: program.id,
+            weekNum: currentWeek,
+            exerciseNames: preFilled.map((log) => log.exercise_name),
+          }
         );
         setLatestPerformance(performance);
+        setLastProgressionNote(applicableNote);
         setLogs(preFilled);
       } else if (generationFailed) {
         setSessionName('');
