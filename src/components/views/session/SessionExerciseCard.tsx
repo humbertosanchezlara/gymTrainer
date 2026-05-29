@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Clock, Eye, Trash2, X, AlertTriangle } from 'lucide-react';
 import type { Exercise } from '../../../types';
 import { getCatalogEntry } from '../../../data/exerciseCatalog';
+import { estimateWeightForRepTarget } from '../../../utils/loadProgression';
 
 const KG_TO_LBS = 2.20462;
 
@@ -27,6 +28,7 @@ interface PreviousExercisePerformance {
   weight: number;
   rpe: number | null;
   sessionName: string;
+  blockTransition: boolean;
 }
 
 interface WeightCellProps {
@@ -147,6 +149,18 @@ function getProgressionHint(log: SessionLogEntry, previousPerformance: PreviousE
   if (!target_reps_max) return null;
 
   if (previousPerformance) {
+    const estimatedBlockWeight = previousPerformance.blockTransition
+      ? estimateWeightForRepTarget(previousPerformance, {
+          repsMin: target_reps_min,
+          repsMax: target_reps_max,
+          rpe: target_rpe,
+        })
+      : null;
+    if (estimatedBlockWeight !== null && log.weight === estimatedBlockWeight) {
+      const direction = estimatedBlockWeight > previousPerformance.weight ? 'sube a' : 'baja a';
+      return `Cambio de bloque: con ${previousPerformance.reps} reps la vez pasada, hoy ${direction} aprox. ${formatKg(log.weight)} kg para el rango ${target_reps_min ?? target_reps_max}-${target_reps_max}.`;
+    }
+
     if (target_reps_min && previousPerformance.reps < target_reps_min) {
       return `Hoy busca al menos ${target_reps_min} reps con buena forma.`;
     }

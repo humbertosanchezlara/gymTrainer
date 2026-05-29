@@ -27,6 +27,7 @@ import { injuryAffectsExercise } from '../../engine/injuryExerciseRules';
 import { decideInjuryProgression } from '../../engine/injuryProgression';
 import { isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
 import { buildSessionProgressionNotes, type ProgressionResult } from '../../utils/sessionProgressionNotes';
+import { estimateWeightForRepTarget, roundToWeightIncrement } from '../../utils/loadProgression';
 import { SessionTopBar } from './session/SessionTopBar';
 import { SessionHeaderCard } from './session/SessionHeaderCard';
 import { SessionTravelBanner } from './session/SessionTravelBanner';
@@ -59,6 +60,7 @@ interface PreviousExercisePerformance {
   weight: number;
   rpe: number | null;
   sessionName: string;
+  blockTransition: boolean;
 }
 
 function normalizeExerciseName(name: string): string {
@@ -163,7 +165,7 @@ function computeProgression(log: SessionLogEntry): ProgressionResult {
   const tooLowReps  = target_reps_min !== undefined && reps_per_set < target_reps_min;
 
   if (hitMaxReps && rpeOnTarget) {
-    const next = Math.round((weight + 2.5) / 2.5) * 2.5;
+    const next = roundToWeightIncrement(weight + 2.5);
     return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: next, action: 'up' };
   }
   if (tooHard || tooLowReps) {
@@ -210,6 +212,9 @@ async function fetchLatestExercisePerformances(
         weight: Number(log.weight) || 0,
         rpe: log.rpe === null || log.rpe === undefined ? null : Number(log.rpe),
         sessionName: session.name || 'Última sesión',
+        blockTransition: typeof session.week_num === 'number'
+          ? getBlockInfo(session.week_num).blockNum !== getBlockInfo(context.weekNum).blockNum
+          : false,
       });
     }
   }
@@ -533,6 +538,24 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
             weekNum: currentWeek,
           }
         );
+        const adjustedLogs = preFilled.map((log) => {
+          const previous = performance.get(log.exercise_id);
+          const estimatedWeight = previous?.blockTransition
+            ? estimateWeightForRepTarget(previous, {
+                repsMin: log.target_reps_min,
+                repsMax: log.target_reps_max,
+                rpe: log.target_rpe,
+              })
+            : null;
+
+          if (estimatedWeight === null || estimatedWeight === log.weight) return log;
+
+          return {
+            ...log,
+            weight: estimatedWeight,
+            notes: log.notes ? `${log.notes} · Ajuste por bloque` : 'Ajuste por bloque',
+          };
+        });
         const applicableNote = await fetchApplicableProgressionNote(
           userId,
           program.created_at,
@@ -544,7 +567,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         );
         setLatestPerformance(performance);
         setLastProgressionNote(applicableNote);
-        setLogs(preFilled);
+        setLogs(adjustedLogs);
       } else if (generationFailed) {
         setSessionName('');
         setLogs([]);
