@@ -174,6 +174,21 @@ function computeProgression(log: SessionLogEntry): ProgressionResult {
   return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'keep' };
 }
 
+function isSessionBeforeProgramSlot(
+  session: { week_num?: number | null; day_num?: number | null; name?: string | null },
+  context: { weekNum: number; dayNum: number; sessionName: string }
+): boolean {
+  if (typeof session.week_num !== 'number') return true;
+  if (session.week_num < context.weekNum) return true;
+  if (session.week_num > context.weekNum) return false;
+
+  if (typeof session.day_num === 'number') {
+    return session.day_num < context.dayNum;
+  }
+
+  return session.name !== context.sessionName;
+}
+
 async function fetchLatestExercisePerformances(
   userId: string,
   programCreatedAt: string,
@@ -200,9 +215,7 @@ async function fetchLatestExercisePerformances(
 
   for (const session of data ?? []) {
     const sameProgram = session.program_id === context.programId || !session.program_id;
-    const sameSlot = session.day_num === context.dayNum || session.name === context.sessionName;
-    const previousWeek = !session.week_num || session.week_num < context.weekNum;
-    if (!sameProgram || !sameSlot || !previousWeek) continue;
+    if (!sameProgram || !isSessionBeforeProgramSlot(session, context)) continue;
 
     const logs = Array.isArray(session.logs) ? session.logs : [];
     for (const log of logs) {
@@ -227,13 +240,15 @@ async function fetchApplicableProgressionNote(
   programCreatedAt: string,
   context: {
     programId: string;
+    sessionName: string;
+    dayNum: number;
     weekNum: number;
     exerciseNames: string[];
   }
 ): Promise<string | null> {
   const { data } = await supabase
     .from('sessions')
-    .select('notes, program_id, week_num, created_at')
+    .select('name, notes, program_id, week_num, day_num, created_at')
     .eq('user_id', userId)
     .gte('created_at', programCreatedAt)
     .not('block_num', 'is', null)
@@ -246,8 +261,7 @@ async function fetchApplicableProgressionNote(
 
   for (const session of data ?? []) {
     const sameProgram = session.program_id === context.programId || !session.program_id;
-    const previousWeek = !session.week_num || session.week_num < context.weekNum;
-    if (!sameProgram || !previousWeek) continue;
+    if (!sameProgram || !isSessionBeforeProgramSlot(session, context)) continue;
 
     const filteredNote = filterProgressionNoteForExercises(session.notes, context.exerciseNames);
     if (!filteredNote) continue;
@@ -445,6 +459,8 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
             program.created_at,
             {
               programId: program.id,
+              sessionName: savedDraft.sessionName,
+              dayNum: savedDraft.dayNum,
               weekNum: savedDraft.weekNum,
               exerciseNames: savedDraft.logs.map((log) => log.exercise_name),
             }
@@ -561,6 +577,8 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
           program.created_at,
           {
             programId: program.id,
+            sessionName: dayResult.day.day_name,
+            dayNum: currentDayNum,
             weekNum: currentWeek,
             exerciseNames: preFilled.map((log) => log.exercise_name),
           }
