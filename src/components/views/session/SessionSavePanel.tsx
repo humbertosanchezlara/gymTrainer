@@ -91,7 +91,9 @@ export function SessionSavePanel({
                   </span>
                   {result.action === 'up'
                     ? <span className="mono caption" style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>↑ {result.prev_weight} kg ({kgToLbs(result.prev_weight)} lb) → {result.next_weight} kg ({kgToLbs(result.next_weight)} lb)</span>
-                    : <span className="mono caption" style={{ color: 'var(--muted)', flexShrink: 0 }}>⚠ Revisa el peso</span>}
+                    : result.next_weight < result.prev_weight
+                      ? <span className="mono caption" style={{ color: 'var(--muted)', flexShrink: 0 }}>↓ {result.prev_weight} kg ({kgToLbs(result.prev_weight)} lb) → {result.next_weight} kg ({kgToLbs(result.next_weight)} lb)</span>
+                      : <span className="mono caption" style={{ color: 'var(--muted)', flexShrink: 0 }}>⚠ Ajusta el peso</span>}
                 </div>
               ))}
             </div>

@@ -71,22 +71,65 @@ function normalizeExerciseName(name: string): string {
     .toLowerCase();
 }
 
-function filterProgressionNoteForExercises(note: string | null | undefined, exerciseNames: string[]): string | null {
+function formatKg(kg: number): string {
+  return Number.isInteger(kg) ? `${kg}` : `${kg.toFixed(1)}`;
+}
+
+type ProgressionNoteTarget = {
+  exerciseName: string;
+  weight: number;
+  targetRepsMin?: number;
+  targetRepsMax?: number;
+  targetRpe?: number;
+};
+
+function buildLegacyWeightReviewLine(exerciseName: string, target: ProgressionNoteTarget | undefined): string {
+  if (!target || target.weight <= 0) {
+    return `${exerciseName}: mantén el peso; no subas hasta cumplir reps y RPE objetivo`;
+  }
+
+  const repsLabel = target.targetRepsMax
+    ? target.targetRepsMin && target.targetRepsMin !== target.targetRepsMax
+      ? `${target.targetRepsMin}-${target.targetRepsMax} reps`
+      : `${target.targetRepsMax} reps`
+    : 'las reps objetivo';
+  const rpeLabel = target.targetRpe ? ` @ RPE ${target.targetRpe}` : '';
+  const lowerWeight = Math.max(0, roundToWeightIncrement(target.weight - 2.5));
+
+  return `${exerciseName}: mantén ${formatKg(target.weight)} kg; busca ${repsLabel}${rpeLabel}. Si no sale otra vez, baja a ${formatKg(lowerWeight)} kg.`;
+}
+
+function formatApplicableProgressionLine(line: string, targetsByName: Map<string, ProgressionNoteTarget>): string | null {
+  const rawLine = line.slice(2).trim();
+  const normalizedLine = normalizeExerciseName(rawLine);
+  const matchingTarget = [...targetsByName.values()].find((target) =>
+    normalizedLine.startsWith(`${normalizeExerciseName(target.exerciseName)}:`)
+  );
+  if (!matchingTarget) return null;
+
+  if (/:\s*revisar peso\s*$/i.test(rawLine)) {
+    return `- ${buildLegacyWeightReviewLine(matchingTarget.exerciseName, matchingTarget)}`;
+  }
+
+  return line;
+}
+
+function filterProgressionNoteForExercises(note: string | null | undefined, exerciseTargets: ProgressionNoteTarget[]): string | null {
   if (!note) return null;
 
-  const normalizedNames = exerciseNames
-    .filter(Boolean)
-    .map((name) => normalizeExerciseName(name));
-  if (normalizedNames.length === 0) return null;
+  const targetsByName = new Map(
+    exerciseTargets
+      .filter((target) => Boolean(target.exerciseName))
+      .map((target) => [normalizeExerciseName(target.exerciseName), target])
+  );
+  if (targetsByName.size === 0) return null;
 
   const applicableLines = note
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.startsWith('- '))
-    .filter((line) => {
-      const normalizedLine = normalizeExerciseName(line.slice(2));
-      return normalizedNames.some((name) => normalizedLine.startsWith(`${name}:`));
-    });
+    .map((line) => formatApplicableProgressionLine(line, targetsByName))
+    .filter((line): line is string => Boolean(line));
 
   if (applicableLines.length === 0) return null;
 
@@ -169,7 +212,13 @@ function computeProgression(log: SessionLogEntry): ProgressionResult {
     return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: next, action: 'up' };
   }
   if (tooHard || tooLowReps) {
-    return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'warn' };
+    const lowerWeight = Math.max(0, roundToWeightIncrement(weight - 2.5));
+    const reasons = [
+      tooLowReps && target_reps_min !== undefined ? `quedaste debajo de ${target_reps_min} reps` : null,
+      tooHard ? `RPE ${rpe} supera el objetivo ${target_rpe}` : null,
+    ].filter(Boolean);
+    const note = `${reasons.join(' y ')}. Mantén ${formatKg(weight)} kg; si se repite, baja a ${formatKg(lowerWeight)} kg.`;
+    return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'warn', note };
   }
   return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'keep' };
 }
@@ -243,7 +292,7 @@ async function fetchApplicableProgressionNote(
     sessionName: string;
     dayNum: number;
     weekNum: number;
-    exerciseNames: string[];
+    exerciseTargets: ProgressionNoteTarget[];
   }
 ): Promise<string | null> {
   const { data } = await supabase
@@ -263,7 +312,7 @@ async function fetchApplicableProgressionNote(
     const sameProgram = session.program_id === context.programId || !session.program_id;
     if (!sameProgram || !isSessionBeforeProgramSlot(session, context)) continue;
 
-    const filteredNote = filterProgressionNoteForExercises(session.notes, context.exerciseNames);
+    const filteredNote = filterProgressionNoteForExercises(session.notes, context.exerciseTargets);
     if (!filteredNote) continue;
 
     for (const line of filteredNote.split('\n').filter((item) => item.trim().startsWith('- '))) {
@@ -462,7 +511,13 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
               sessionName: savedDraft.sessionName,
               dayNum: savedDraft.dayNum,
               weekNum: savedDraft.weekNum,
-              exerciseNames: savedDraft.logs.map((log) => log.exercise_name),
+              exerciseTargets: savedDraft.logs.map((log) => ({
+                exerciseName: log.exercise_name,
+                weight: log.weight,
+                targetRepsMin: log.target_reps_min,
+                targetRepsMax: log.target_reps_max,
+                targetRpe: log.target_rpe,
+              })),
             }
           );
           setLatestPerformance(performance);
@@ -580,7 +635,13 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
             sessionName: dayResult.day.day_name,
             dayNum: currentDayNum,
             weekNum: currentWeek,
-            exerciseNames: preFilled.map((log) => log.exercise_name),
+            exerciseTargets: adjustedLogs.map((log) => ({
+              exerciseName: log.exercise_name,
+              weight: log.weight,
+              targetRepsMin: log.target_reps_min,
+              targetRepsMax: log.target_reps_max,
+              targetRpe: log.target_rpe,
+            })),
           }
         );
         setLatestPerformance(performance);
