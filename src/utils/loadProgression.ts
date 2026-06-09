@@ -46,3 +46,21 @@ export function estimateWeightForRepTarget(
 
   return rounded > 0 && rounded !== previous.weight ? rounded : null;
 }
+
+export function getNextProgressionWeight(
+  previous: PerformanceForLoadEstimate,
+  target: LoadTarget,
+  increment = 2.5,
+): number | null {
+  const targetRepsMax = target.repsMax;
+  const targetRpe = target.rpe;
+  if (!targetRepsMax || targetRpe === undefined || previous.weight <= 0) return null;
+  if (previous.rpe === null || previous.rpe === undefined || Number.isNaN(previous.rpe)) return null;
+
+  const hitTopOfRange = previous.reps >= targetRepsMax;
+  const rpeOnTarget = previous.rpe <= targetRpe;
+  if (!hitTopOfRange || !rpeOnTarget) return null;
+
+  const next = roundToWeightIncrement(previous.weight + increment, increment);
+  return next > previous.weight ? next : null;
+}

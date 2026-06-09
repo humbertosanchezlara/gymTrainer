@@ -27,7 +27,7 @@ import { injuryAffectsExercise } from '../../engine/injuryExerciseRules';
 import { decideInjuryProgression } from '../../engine/injuryProgression';
 import { isExerciseSuitableForProfile } from '../../engine/exerciseSuitability';
 import { buildSessionProgressionNotes, type ProgressionResult } from '../../utils/sessionProgressionNotes';
-import { estimateWeightForRepTarget, roundToWeightIncrement } from '../../utils/loadProgression';
+import { estimateWeightForRepTarget, getNextProgressionWeight, roundToWeightIncrement } from '../../utils/loadProgression';
 import { SessionTopBar } from './session/SessionTopBar';
 import { SessionHeaderCard } from './session/SessionHeaderCard';
 import { SessionTravelBanner } from './session/SessionTravelBanner';
@@ -221,6 +221,43 @@ function computeProgression(log: SessionLogEntry): ProgressionResult {
     return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'warn', note };
   }
   return { exercise_name: log.exercise_name, prev_weight: weight, next_weight: weight, action: 'keep' };
+}
+
+function applyPreviousPerformanceWeightAdjustment(
+  log: SessionLogEntry,
+  previous: PreviousExercisePerformance | undefined,
+): SessionLogEntry {
+  if (!previous) return log;
+
+  const blockWeight = previous.blockTransition
+    ? estimateWeightForRepTarget(previous, {
+        repsMin: log.target_reps_min,
+        repsMax: log.target_reps_max,
+        rpe: log.target_rpe,
+      })
+    : null;
+  const progressionWeight = getNextProgressionWeight(previous, {
+    repsMin: log.target_reps_min,
+    repsMax: log.target_reps_max,
+    rpe: log.target_rpe,
+  });
+
+  const recommendedWeight = blockWeight !== null && blockWeight !== log.weight
+    ? blockWeight
+    : progressionWeight !== null && progressionWeight > log.weight
+      ? progressionWeight
+      : null;
+  if (recommendedWeight === null) return log;
+
+  const note = blockWeight !== null && blockWeight === recommendedWeight
+    ? 'Ajuste por bloque'
+    : 'Progresión por sesión previa';
+
+  return {
+    ...log,
+    weight: recommendedWeight,
+    notes: log.notes ? `${log.notes} · ${note}` : note,
+  };
 }
 
 function isSessionBeforeProgramSlot(
@@ -491,7 +528,6 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
       if (savedDraft) {
         if (savedDraft.dayNum === currentDayNum && savedDraft.weekNum === currentWeek) {
           setSessionName(savedDraft.sessionName);
-          setLogs(savedDraft.logs);
           const performance = await fetchLatestExercisePerformances(
             userId,
             program.created_at,
@@ -503,6 +539,9 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
               weekNum: savedDraft.weekNum,
             }
           );
+          const adjustedDraftLogs = savedDraft.logs.map((log) =>
+            applyPreviousPerformanceWeightAdjustment(log, performance.get(log.exercise_id))
+          );
           const applicableNote = await fetchApplicableProgressionNote(
             userId,
             program.created_at,
@@ -511,7 +550,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
               sessionName: savedDraft.sessionName,
               dayNum: savedDraft.dayNum,
               weekNum: savedDraft.weekNum,
-              exerciseTargets: savedDraft.logs.map((log) => ({
+              exerciseTargets: adjustedDraftLogs.map((log) => ({
                 exerciseName: log.exercise_name,
                 weight: log.weight,
                 targetRepsMin: log.target_reps_min,
@@ -522,6 +561,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
           );
           setLatestPerformance(performance);
           setLastProgressionNote(applicableNote);
+          setLogs(adjustedDraftLogs);
           setLoadingProgram(false);
           draftRestoredRef.current = true;
           return;
@@ -611,21 +651,7 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         );
         const adjustedLogs = preFilled.map((log) => {
           const previous = performance.get(log.exercise_id);
-          const estimatedWeight = previous?.blockTransition
-            ? estimateWeightForRepTarget(previous, {
-                repsMin: log.target_reps_min,
-                repsMax: log.target_reps_max,
-                rpe: log.target_rpe,
-              })
-            : null;
-
-          if (estimatedWeight === null || estimatedWeight === log.weight) return log;
-
-          return {
-            ...log,
-            weight: estimatedWeight,
-            notes: log.notes ? `${log.notes} · Ajuste por bloque` : 'Ajuste por bloque',
-          };
+          return applyPreviousPerformanceWeightAdjustment(log, previous);
         });
         const applicableNote = await fetchApplicableProgressionNote(
           userId,
