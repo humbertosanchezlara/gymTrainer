@@ -189,6 +189,11 @@ function readSavedSessionDraft(userId: string): SessionDraft | null {
   return null;
 }
 
+function savedDraftMatchesProgramDay(draft: SessionDraft, dayExercises: ProgramDayExercise[]): boolean {
+  if (draft.logs.length !== dayExercises.length) return false;
+  return dayExercises.every((exercise, index) => draft.logs[index]?.exercise_id === exercise.exercise_id);
+}
+
 /**
  * Double-progression rule:
  *   ↑  reps >= target_reps_max  AND  rpe <= target_rpe       → +2.5 kg next session
@@ -431,18 +436,6 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
     const loadSession = async () => {
       setSaveError(null);
       setLastProgressionNote(null);
-      const optimisticDraft = travelDraft ? null : readSavedSessionDraft(userId);
-
-      if (optimisticDraft && !draftRestoredRef.current) {
-        setDayNum(optimisticDraft.dayNum);
-        setWeekNum(optimisticDraft.weekNum);
-        setSessionName(optimisticDraft.sessionName);
-        setLogs(optimisticDraft.logs);
-        setLatestPerformance(new Map());
-        setHasProgram(true);
-        setLoadingProgram(false);
-        draftRestoredRef.current = true;
-      }
 
       const { data: exData } = await supabase
         .from('exercises')
@@ -523,51 +516,6 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
         return;
       }
 
-      // Check if there's a saved draft for this same day/week
-      const savedDraft = readSavedSessionDraft(userId);
-      if (savedDraft) {
-        if (savedDraft.dayNum === currentDayNum && savedDraft.weekNum === currentWeek) {
-          setSessionName(savedDraft.sessionName);
-          const performance = await fetchLatestExercisePerformances(
-            userId,
-            program.created_at,
-            savedDraft.logs.map((log) => log.exercise_id),
-            {
-              programId: program.id,
-              sessionName: savedDraft.sessionName,
-              dayNum: savedDraft.dayNum,
-              weekNum: savedDraft.weekNum,
-            }
-          );
-          const adjustedDraftLogs = savedDraft.logs.map((log) =>
-            applyPreviousPerformanceWeightAdjustment(log, performance.get(log.exercise_id))
-          );
-          const applicableNote = await fetchApplicableProgressionNote(
-            userId,
-            program.created_at,
-            {
-              programId: program.id,
-              sessionName: savedDraft.sessionName,
-              dayNum: savedDraft.dayNum,
-              weekNum: savedDraft.weekNum,
-              exerciseTargets: adjustedDraftLogs.map((log) => ({
-                exerciseName: log.exercise_name,
-                weight: log.weight,
-                targetRepsMin: log.target_reps_min,
-                targetRepsMax: log.target_reps_max,
-                targetRpe: log.target_rpe,
-              })),
-            }
-          );
-          setLatestPerformance(performance);
-          setLastProgressionNote(applicableNote);
-          setLogs(adjustedDraftLogs);
-          setLoadingProgram(false);
-          draftRestoredRef.current = true;
-          return;
-        }
-      }
-
       let generationFailed = false;
       try {
         await ensureWeekGenerated(userId, program.id, currentWeek);
@@ -614,6 +562,53 @@ export default function SessionView({ onNavigate, travelDraft, travelContext, pr
           normalizeProgramDayExercise(ex as Record<string, unknown>)
         );
         setProgramDayExercises(dayExercises);
+
+        const savedDraft = readSavedSessionDraft(userId);
+        if (savedDraft && savedDraft.dayNum === currentDayNum && savedDraft.weekNum === currentWeek) {
+          if (savedDraftMatchesProgramDay(savedDraft, dayExercises)) {
+            const performance = await fetchLatestExercisePerformances(
+              userId,
+              program.created_at,
+              savedDraft.logs.map((log) => log.exercise_id),
+              {
+                programId: program.id,
+                sessionName: dayResult.day.day_name,
+                dayNum: savedDraft.dayNum,
+                weekNum: savedDraft.weekNum,
+              }
+            );
+            const adjustedDraftLogs = savedDraft.logs.map((log) =>
+              applyPreviousPerformanceWeightAdjustment(log, performance.get(log.exercise_id))
+            );
+            const applicableNote = await fetchApplicableProgressionNote(
+              userId,
+              program.created_at,
+              {
+                programId: program.id,
+                sessionName: dayResult.day.day_name,
+                dayNum: savedDraft.dayNum,
+                weekNum: savedDraft.weekNum,
+                exerciseTargets: adjustedDraftLogs.map((log) => ({
+                  exerciseName: log.exercise_name,
+                  weight: log.weight,
+                  targetRepsMin: log.target_reps_min,
+                  targetRepsMax: log.target_reps_max,
+                  targetRpe: log.target_rpe,
+                })),
+              }
+            );
+            setSessionName(dayResult.day.day_name);
+            setLatestPerformance(performance);
+            setLastProgressionNote(applicableNote);
+            setLogs(adjustedDraftLogs);
+            setLoadingProgram(false);
+            draftRestoredRef.current = true;
+            return;
+          }
+
+          localStorage.removeItem(sessionDraftKey(userId));
+        }
+
         const preFilled: SessionLogEntry[] = dayExercises.map((ex) => {
           let currentWeight = weightMap.get(ex.exercise_id) ?? ex.weight ?? 0;
           let rpe = ex.rpe || 7;
