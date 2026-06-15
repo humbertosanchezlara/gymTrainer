@@ -99,7 +99,7 @@ function resolveExercise(
     (e) => e.category === slot.category && isExerciseEnabled(e.status) && !usedIds.has(e.id)
   ));
   const bySuitability = (a: Exercise, b: Exercise) =>
-    exerciseSuitabilityScore(b, profile) - exerciseSuitabilityScore(a, profile);
+    exerciseSelectionScore(slot, b, profile) - exerciseSelectionScore(slot, a, profile);
   const suitableAvailable = available
     .filter((exercise) => isExerciseSuitableForProfile(exercise, profile))
     .sort(bySuitability);
@@ -127,15 +127,37 @@ function resolveExercise(
   return suitableAvailable[0];
 }
 
+function normalizeExerciseName(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function exerciseSelectionScore(
+  slot: ExerciseSlot,
+  exercise: Exercise,
+  profile: ExerciseSuitabilityProfile
+): number {
+  let score = exerciseSuitabilityScore(exercise, profile);
+
+  if (slot.role !== 'accessory' && slot.category === 'POSTERIOR_CHAIN') {
+    const name = normalizeExerciseName(exercise.name);
+    if (/peso muerto|deadlift|hip thrust|good morning|buenos dias/.test(name)) score += 24;
+    if (/abductores|aductores|patada de gluteo|caminata lateral|monster walk|curl femoral|puente de gluteo/.test(name)) {
+      score -= 36;
+    }
+  }
+
+  return score;
+}
+
 function filterAccessoryFallbacks(slot: ExerciseSlot, candidates: Exercise[]): Exercise[] {
   if (slot.role !== 'accessory') return candidates;
   if (slot.category !== 'PUSH_VERTICAL' && slot.category !== 'PUSH_HORIZONTAL') return candidates;
 
   const nonPressingAccessories = candidates.filter((exercise) => {
-    const name = exercise.name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
+    const name = normalizeExerciseName(exercise.name);
     return !/press|banca|militar|landmine/.test(name);
   });
 

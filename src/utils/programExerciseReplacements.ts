@@ -123,7 +123,7 @@ export function applyProgramExerciseReplacementRules<TDay extends { exercises: P
       if (replacedSource || alreadyHasReplacement) continue;
 
       const compatibleIndex = updatedExercises.findIndex((exercise) =>
-        replacementCategories.includes(exercise.category)
+        exercise.role === 'accessory' && replacementCategories.includes(exercise.category)
       );
       if (compatibleIndex === -1) continue;
 
